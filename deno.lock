@@ -1,0 +1,21 @@
+{
+  "version": "5",
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.57.4": "05a369085eb4a4c99d85ccece97f0cf1e05357122e0e74373da1f0e91b014902"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@electric-sql/pglite@~0.3.10",
+        "npm:@playwright/test@^1.55.0",
+        "npm:@supabase/supabase-js@^2.57.0",
+        "npm:@vitejs/plugin-react@^5.0.3",
+        "npm:leaflet@^1.9.4",
+        "npm:lucide-react@0.468",
+        "npm:react-dom@^19.1.1",
+        "npm:react@^19.1.1",
+        "npm:vite@^7.1.5"
+      ]
+    }
+  }
+}
