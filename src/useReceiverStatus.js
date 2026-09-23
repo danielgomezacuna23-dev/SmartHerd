@@ -25,6 +25,7 @@ export default function useReceiverStatus(enabled) {
     let inFlight = false;
     let timer;
     let controller;
+    let firstRequest = true;
     const schedule = () => {
       clearTimeout(timer);
       timer = setTimeout(poll, document.hidden ? 15000 : 3000);
@@ -33,7 +34,10 @@ export default function useReceiverStatus(enabled) {
       if (!active || inFlight) return;
       inFlight = true;
       controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 1800);
+      // A public HTTPS page may wait for Chrome's local-network permission
+      // before it can contact the receiver on this computer.
+      const timeout = setTimeout(() => controller.abort(), firstRequest ? 60_000 : 5_000);
+      firstRequest = false;
       try {
         const response = await fetch("http://127.0.0.1:8765/status", {
           cache: "no-store",

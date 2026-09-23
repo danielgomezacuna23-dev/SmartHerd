@@ -2,6 +2,8 @@
 
 Prototipo funcional de gestión ganadera, basado en Hato-Ganaderia y en `SmartHerd ExpoTecnica2026.docx`. Está preparado para Supabase y para recibir mediciones de una estación ESP32 que concentre datos de collares LoRa.
 
+La demostración pública está en [SmartHerd](https://danielgomezacuna23-dev.github.io/SmartHerd/). Usa el proyecto Supabase dedicado `vqtgbgkwleveevlmguqe` para el acceso con cuenta y los datos en nube. La demostración se puede explorar sin cuenta y guarda sus cambios solo en el navegador.
+
 ## Probar ahora
 
 ```sh
@@ -98,17 +100,17 @@ npm run build
 npm run preview
 ```
 
-Configura las dos variables públicas VITE en el alojamiento **antes** de construir. Comando de compilación: `npm ci && npm run build`; carpeta a publicar: `dist`. No necesita servidor Node permanente para la interfaz ni rutas especiales. Configura Site URL y dominios permitidos en Supabase Auth para el dominio final. Usa HTTPS. No se ha publicado un sitio remoto ni creado/configurado un proyecto Supabase como parte de la entrega local.
+Configura las dos variables públicas VITE en el alojamiento **antes** de construir. Comando de compilación: `npm ci && npm run build`; carpeta a publicar: `dist`. No necesita servidor Node permanente para la interfaz ni rutas especiales. Configura Site URL y dominios permitidos en Supabase Auth para el dominio final. Usa HTTPS. La interfaz pública actual se sirve por GitHub Pages; Supabase aloja la base, Auth y `ingest-telemetry`, no los archivos del frontend.
 
 ## Prueba local con dos ESP32
 
-La carpeta hermana [smartherd-hardware](../smartherd-hardware/README.md) contiene el firmware GPS/transmisor y receptor LoRa, un cargador que verifica la serie USB de cada placa y un puente local para esta Mac. El emisor con GPS es el equipo conectado **directamente**; el receptor sin GPS está conectado al **hub**. En **Collares**, **Resumen** y **Mapa** el estado del collar físico `SH-COLLAR-001` se actualiza cada tres segundos con la pestaña visible y se consulta al volver a ella: distingue **Sin señal GPS** (LoRa recibió `NO_FIX`), **Sin señal LoRa** (el emisor transmitió pero no llegó la trama en 45 s), **Desconectado** (falta el emisor por USB) y **Desactivado** (configuración de la web), además de fallos del receptor o del monitoreo. Los otros tres collares son solo ejemplos sin ESP32 asociado. El emisor correcto entregó más de 13 000 bytes GPS y 44 tramas RMC válidas, y el receptor recibió `NO_FIX` por LoRa; la web lo mostró correctamente. Aún falta comprobar una posición real bajo cielo abierto. Este enlace USB local no envía lecturas a Supabase ni estará disponible automáticamente en un sitio remoto.
+La carpeta hermana [smartherd-hardware](../smartherd-hardware/README.md) contiene el firmware GPS/transmisor y receptor LoRa, un cargador que verifica la serie USB de cada placa y un puente local para esta Mac. El emisor con GPS es el equipo conectado **directamente**; el receptor sin GPS está conectado al **hub**. En **Collares**, **Resumen** y **Mapa** el estado del collar físico `SH-COLLAR-001` se actualiza cada tres segundos con la pestaña visible y se consulta al volver a ella: distingue **Sin señal GPS** (LoRa recibió `NO_FIX`), **Sin señal LoRa** (el emisor transmitió pero no llegó la trama en 45 s), **Desconectado** (falta el emisor por USB) y **Desactivado** (configuración de la web), además de fallos del receptor o del monitoreo. Los otros tres collares son solo ejemplos sin ESP32 asociado. El emisor correcto entregó más de 13 000 bytes GPS y 44 tramas RMC válidas, y el receptor recibió `NO_FIX` por LoRa; la web lo mostró correctamente. Aún falta comprobar una posición real bajo cielo abierto. En la web pública de Chrome, permite el acceso local solicitado para leer este puente de la Mac; no lleva los datos del ESP32 a Supabase y no estará disponible en otros dispositivos automáticamente.
 
 ## Arquitectura y límites
 
 `Collar ESP32 + sensores → LoRa punto a punto → estación base ESP32 + internet → Edge Function autenticada → PostgreSQL → React`
 
-- En modo Supabase, el panel se actualiza al recibir cambios de la finca por Realtime cuando se aplica la segunda migración. Conserva una consulta cada 30 segundos y otra al volver a la pestaña para recuperarse de cortes o eventos perdidos. Esta ruta aún requiere prueba con un proyecto Supabase real.
+- En modo Supabase, el panel se actualiza al recibir cambios de la finca por Realtime cuando se aplica la segunda migración. Conserva una consulta cada 30 segundos y otra al volver a la pestaña para recuperarse de cortes o eventos perdidos. Las migraciones y la función ya están instaladas en el proyecto dedicado; queda verificar una sesión real y un reporte autenticado de estación.
 - Las alertas se calculan con el panel abierto; no hay notificaciones push, SMS, correo ni análisis programado en servidor.
 - Los umbrales de actividad/temperatura usan al menos 5 reportes anteriores dentro de 7 días. No es un modelo fisiológico validado ni ajustado a horas del día.
 - Se cargan las últimas 5000 lecturas de la finca. Gráficas: hasta 24 por animal. Los datos anteriores permanecen en Supabase, pero esta interfaz y su CSV no los descargan. Para grandes hatos, añadir paginación y agregación por animal antes del uso prolongado.
