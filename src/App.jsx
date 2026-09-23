@@ -437,7 +437,12 @@ export default function App() {
       });
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_e, s) => {
+    } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
+        setSession(s);
+        setAuthReady(true);
+        return;
+      }
       refreshGeneration.current += 1;
       setSession(s);
       setData(null);
