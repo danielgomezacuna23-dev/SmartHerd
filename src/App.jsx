@@ -1544,7 +1544,7 @@ export default function App() {
               }
               try {
                 await sendReceiverMode(intervalSeconds);
-                await refreshReceiver();
+                void refreshReceiver().catch(() => {});
                 setNotice(intervalSeconds === 5
                   ? "Emisor confirmado: reportes cada 5 segundos durante 15 minutos"
                   : "Emisor confirmado: reportes cada 5 minutos");
