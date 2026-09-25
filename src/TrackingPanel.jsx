@@ -37,15 +37,18 @@ export default function TrackingPanel({ tracking, receiver, intervalSeconds, bus
         <span>
           <strong>{live ? "Rastrear en tiempo real" : "Modo habitual"}</strong>
           <small>{live ? "Consulta cada 5 segundos" : "Consulta cada 5 minutos"}</small>
+          <small>{receiver?.transmitter_interval_seconds === intervalSeconds
+            ? "Intervalo confirmado en el emisor"
+            : "Intervalo físico pendiente de confirmar"}</small>
         </span>
       </div>
       <div className="tracking-mode-actions" role="group" aria-label="Frecuencia de rastreo">
         <button type="button" className={live ? "secondary" : "primary"}
-          aria-pressed={!live} disabled={busy || !live} onClick={() => onMode(300)}>
+          aria-pressed={!live} disabled={busy || (!live && receiver?.transmitter_interval_seconds === 300)} onClick={() => onMode(300)}>
           Habitual · 5 min
         </button>
         <button type="button" className={live ? "primary" : "secondary"}
-          aria-pressed={live} disabled={busy || live} onClick={() => onMode(5)}>
+          aria-pressed={live} disabled={busy || (live && receiver?.transmitter_interval_seconds === 5)} onClick={() => onMode(5)}>
           Rastrear en tiempo real · 5 s
         </button>
       </div>
@@ -105,7 +108,7 @@ export default function TrackingPanel({ tracking, receiver, intervalSeconds, bus
         {error && <p className="error" role="alert">{error}</p>}
         <p className="tracking-hint">Registrar un módulo no lo programa ni demuestra que esté en línea. La comunicación se confirma con las pruebas cuando los ESP32 estén conectados.</p>
       </div>
-      <p className="tracking-hint">La opción guarda la frecuencia solicitada para la estación. El ahorro de batería y el cambio físico a 5 segundos requieren que el firmware de ambos ESP32 aplique esta orden; aún no están conectados para comprobarlo.</p>
+      <p className="tracking-hint">Con ambos ESP32 conectados a esta Mac y el puente local activo, el botón envía la orden por LoRa y espera confirmación del emisor. Sin puente local, la preferencia queda guardada para la estación, pero el intervalo físico no cambia.</p>
     </div>
   );
 }

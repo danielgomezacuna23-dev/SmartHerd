@@ -6,6 +6,8 @@ export function validReceiverStatus(value) {
   if (typeof value.receiver_connected !== "boolean" ||
       typeof value.transmitter_connected !== "boolean" ||
       !["waiting", "no_fix", "fix"].includes(value.signal)) return false;
+  if (value.transmitter_interval_seconds != null &&
+      ![5, 300].includes(value.transmitter_interval_seconds)) return false;
   if (value.signal === "fix" &&
       (!Number.isFinite(value.latitude) || !Number.isFinite(value.longitude) ||
        Math.abs(value.latitude) > 90 || Math.abs(value.longitude) > 180)) return false;
@@ -31,6 +33,31 @@ export async function readReceiverStatus(timeoutMs = 10_000, externalSignal) {
   } finally {
     clearTimeout(timer);
     externalSignal?.removeEventListener("abort", abort);
+  }
+}
+
+export async function sendReceiverMode(intervalSeconds, timeoutMs = 60_000) {
+  if (![5, 300].includes(intervalSeconds)) throw new Error("Intervalo inválido");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch("http://127.0.0.1:8765/mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ interval_seconds: intervalSeconds }),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const result = await response.json();
+    if (!response.ok || !result.confirmed)
+      throw new Error(result.message || result.error || "El emisor no confirmó el cambio de intervalo");
+    return result;
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error("La estación local no respondió a tiempo");
+    if (error instanceof TypeError) throw new Error("No se pudo contactar el puente local de los ESP32");
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

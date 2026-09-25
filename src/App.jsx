@@ -43,7 +43,7 @@ import Login from "./Login";
 import { ErrorPage, ErrorPanel } from "./Errors";
 import { configurationError } from "./data";
 import MotionContent from "./MotionContent";
-import useReceiverStatus from "./useReceiverStatus";
+import useReceiverStatus, { sendReceiverMode } from "./useReceiverStatus";
 import { collarStatus, PHYSICAL_COLLAR_ID } from "./collarStatus.mjs";
 import { effectiveTrackingInterval } from "./tracking.mjs";
 import TrackingPanel from "./TrackingPanel";
@@ -442,7 +442,7 @@ export default function App() {
   const { receiver, refresh: refreshReceiver } = useReceiverStatus(
     !!session && !!data?.devices.some((device) =>
       device.id === PHYSICAL_COLLAR_ID && device.enabled),
-    trackingInterval * 1000,
+    3_000,
   );
   const refreshGeneration = useRef(0);
   const farmLoadGeneration = useRef(0);
@@ -1538,9 +1538,19 @@ export default function App() {
                 requested_at: new Date().toISOString(),
               });
               await refresh();
-              setNotice(intervalSeconds === 5
-                ? "Rastreo rápido solicitado durante 15 minutos"
-                : "Modo habitual solicitado");
+              if (!data.devices.some((device) => device.id === PHYSICAL_COLLAR_ID && device.enabled)) {
+                setNotice("Frecuencia guardada; esta finca no tiene vinculado el collar físico SH-COLLAR-001");
+                return;
+              }
+              try {
+                await sendReceiverMode(intervalSeconds);
+                await refreshReceiver();
+                setNotice(intervalSeconds === 5
+                  ? "Emisor confirmado: reportes cada 5 segundos durante 15 minutos"
+                  : "Emisor confirmado: reportes cada 5 minutos");
+              } catch (localError) {
+                setError(`La frecuencia se guardó, pero ${localError.message}. Revisa el puente local y vuelve a pulsar el modo.`);
+              }
             })}
             onAddModule={(input) => act(async () => {
               const row = validateModule(input, data.devices, data.modules);
