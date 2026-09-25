@@ -50,6 +50,7 @@ import TrackingPanel from "./TrackingPanel";
 import { potentialHeatForecast } from "./reproduction.mjs";
 import { validateModule } from "./modules.mjs";
 import { shouldResetWorkspace } from "./authSession.mjs";
+import { animalsWithoutCollar, suggestCollarId } from "./registration.mjs";
 import FarmAccess from "./FarmAccess";
 import FarmLocationPicker from "./FarmLocationPicker";
 const nav = [
@@ -437,7 +438,8 @@ export default function App() {
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
-    [clock, setClock] = useState(Date.now());
+    [clock, setClock] = useState(Date.now()),
+    [authEpoch, setAuthEpoch] = useState(0);
   const trackingInterval = effectiveTrackingInterval(data?.tracking, clock);
   const { receiver, refresh: refreshReceiver } = useReceiverStatus(
     !!session && !!data?.devices.some((device) =>
@@ -469,6 +471,7 @@ export default function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, s) => {
       receivedAuthEvent = true;
+      if (!s && event !== "SIGNED_OUT" && event !== "INITIAL_SESSION") return;
       const nextUserId = s?.user?.id || null;
       const reset = shouldResetWorkspace(currentUserId.current, nextUserId, event);
       currentUserId.current = nextUserId;
@@ -481,6 +484,7 @@ export default function App() {
       setFarmId(null);
       setFarms(null);
       setFarmMode(null);
+      setAuthEpoch((value) => value + 1);
     });
     return () => { cancelled = true; subscription.unsubscribe(); };
   }, []);
@@ -502,7 +506,7 @@ export default function App() {
       setError("No se pudieron cargar las fincas: " + e.message);
     }
   }, []);
-  useEffect(() => { if (session?.user?.id) void refreshFarms(); }, [session?.user?.id, refreshFarms]);
+  useEffect(() => { if (session?.user?.id) void refreshFarms(); }, [session?.user?.id, authEpoch, refreshFarms]);
   useEffect(() => {
     if (!session?.user?.id || farmId) return;
     const resume = () => { if (!document.hidden) void refreshFarms(); };
@@ -591,8 +595,10 @@ export default function App() {
     setError("");
     try {
       await fn();
+      return true;
     } catch (e) {
       setError(e.message || "No se pudo guardar.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -624,6 +630,7 @@ export default function App() {
     () => data?.animals.filter((a) => a.status === "activo") || [],
     [data?.animals],
   );
+  const unlinkedAnimals = data ? animalsWithoutCollar(data.animals, data.devices) : [];
   const animal = data?.animals.find((a) => a.id === selected);
   const rows = animal ? animalReadings(animal, data.readings) : [];
   const latest = rows[0];
@@ -949,7 +956,7 @@ export default function App() {
               )}
             </div>
           </div>
-          {error && (
+          {error && !modal && (
             <div className="error" role="alert">
               {error}
               <button
@@ -1566,7 +1573,7 @@ export default function App() {
               await refresh();
               setNotice("Módulo eliminado del registro");
             })}
-            onLinkCollar={() => setModal({ type: "device" })}
+            onLinkCollar={() => setModal({ type: "device", returnTo: "tracking" })}
             error={error}
           />
         </Modal>
@@ -1667,8 +1674,12 @@ export default function App() {
                 )
                   throw new Error("Este arete ya está registrado.");
                 await save("animals", row, "animals");
-                setModal(null);
-                choose(row.id);
+                if (modal.returnTo === "device" || modal.returnTo === "tracking") {
+                  setModal({ type: "device", animalId: row.id, returnTo: modal.returnTo === "tracking" ? "tracking" : null });
+                } else {
+                  setModal(null);
+                  choose(row.id);
+                }
               })
             }
           />
@@ -1708,11 +1719,13 @@ export default function App() {
               e.preventDefault();
               const f = new FormData(e.target);
               act(async () => {
-                const id = f.get("id").trim().toUpperCase();
+                const id = String(f.get("id") || "").trim().toUpperCase();
                 if (!/^SH-[A-Z0-9-]{3,40}$/.test(id))
                   throw new Error(
-                    "Usa SH- seguido de al menos 3 letras o números.",
+                    "El identificador debe empezar por SH- y contener letras, números o guiones.",
                   );
+                if (!unlinkedAnimals.some((animal) => animal.id === f.get("animal_id")))
+                  throw new Error("Registra o selecciona un animal activo que todavía no tenga collar.");
                 if (data.devices.some((d) => d.id === id))
                   throw new Error("El collar ya existe.");
                 if (
@@ -1723,39 +1736,38 @@ export default function App() {
                   id, animal_id: f.get("animal_id"), enabled: true,
                   owner_id: session.user.id, farm_id: farmId,
                 });
-                if (error) throw error.code === "23505" ? new Error("Este collar ya está vinculado en una finca.") : error;
+                if (error) throw error.code === "23505" ? new Error("Este identificador o animal ya tiene un collar vinculado.") : error;
                 await refresh();
-                setModal(null);
+                setModal(modal.returnTo === "tracking" ? { type: "tracking" } : null);
               });
             }}
           >
             <Field label="Identificador del collar">
               <input
                 name="id"
-                placeholder="SH-COLLAR-005"
+                defaultValue={suggestCollarId(data.devices)}
+                placeholder="SH-COLLAR-001"
                 required
                 maxLength={43}
+                autoCapitalize="characters"
               />
             </Field>
-            <Field label="Animal">
-              <select name="animal_id" required>
-                <option value="">Selecciona un animal</option>
-                {active
-                  .filter(
-                    (a) => !data.devices.some((d) => d.animal_id === a.id),
-                  )
-                  .map((a) => (
+            <p className="hint">El ESP32 con GPS de este prototipo envía <strong>SH-COLLAR-001</strong>. Usa ese identificador para ese módulo; si registras otro collar físico, su firmware debe enviar el ID que escribas aquí.</p>
+            <Field label="Animal registrado">
+              <select name="animal_id" required defaultValue={modal.animalId || ""} disabled={!unlinkedAnimals.length}>
+                <option value="">{unlinkedAnimals.length ? "Selecciona un animal" : "No hay animales disponibles"}</option>
+                {unlinkedAnimals.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name} · {a.ear_tag}
                     </option>
                   ))}
               </select>
             </Field>
-            <p className="hint">
-              Este identificador debe coincidir con el que envía la estación
-              base.
-            </p>
-            <button className="primary" disabled={busy}>
+            {!unlinkedAnimals.length && <div className="form-guidance">
+              <p>{active.length ? "Todos los animales activos ya tienen collar. Registra otro animal para crear un vínculo nuevo." : "Primero registra un animal en Mi ganado; aquí podrás seleccionarlo después."}</p>
+              <button type="button" className="secondary" onClick={() => setModal({ type: "animal", returnTo: modal.returnTo || "device" })}>Registrar animal</button>
+            </div>}
+            <button className="primary" disabled={busy || !unlinkedAnimals.length}>
               Guardar vínculo
             </button>
           </form>

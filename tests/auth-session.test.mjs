@@ -11,4 +11,6 @@ test("cerrar sesión o cambiar de cuenta limpia la finca activa", () => {
   assert.equal(shouldResetWorkspace("user-1", null, "SIGNED_OUT"), true);
   assert.equal(shouldResetWorkspace("user-1", "user-2", "SIGNED_IN"), true);
   assert.equal(shouldResetWorkspace(null, "user-1", "SIGNED_IN"), true);
+  assert.equal(shouldResetWorkspace("user-1", null, "TOKEN_REFRESHED"), false);
+  assert.equal(shouldResetWorkspace("user-1", null, "INITIAL_SESSION"), false);
 });

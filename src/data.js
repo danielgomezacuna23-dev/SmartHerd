@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { withDeadline } from "./deadline.mjs";
 const url = import.meta.env.VITE_SUPABASE_URL,
   key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export let supabase = null;
@@ -10,17 +11,14 @@ try {
 }
 export async function loadFarms() {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-  try {
-    const { data, error } = await supabase.from("farm_settings").select("*")
-      .order("name").abortSignal(controller.signal);
-    if (controller.signal.aborted)
-      throw new Error("La conexión tardó demasiado. Revisa internet e inténtalo de nuevo.");
-    if (error) throw error;
-    return data;
-  } finally {
-    clearTimeout(timeout);
-  }
+  const { data, error } = await withDeadline(
+    supabase.from("farm_settings").select("*")
+      .order("name").abortSignal(controller.signal),
+    15_000,
+    () => controller.abort(),
+  );
+  if (error) throw error;
+  return data;
 }
 export async function loadCloud(farmId) {
   const names = [

@@ -881,6 +881,20 @@ td {
 .hint {
   line-height: 1.6;
 }
+.form-guidance {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+}
+.form-guidance p {
+  margin: 0;
+}
+.form-guidance .secondary {
+  justify-self: start;
+}
 .detail-actions {
   flex-wrap: wrap;
 }
