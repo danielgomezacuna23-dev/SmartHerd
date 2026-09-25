@@ -9,9 +9,18 @@ try {
   configurationError = "Configuración de Supabase inválida";
 }
 export async function loadFarms() {
-  const { data, error } = await supabase.from("farm_settings").select("*").order("name");
-  if (error) throw error;
-  return data;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const { data, error } = await supabase.from("farm_settings").select("*")
+      .order("name").abortSignal(controller.signal);
+    if (controller.signal.aborted)
+      throw new Error("La conexión tardó demasiado. Revisa internet e inténtalo de nuevo.");
+    if (error) throw error;
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 export async function loadCloud(farmId) {
   const names = [

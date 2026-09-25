@@ -49,6 +49,7 @@ import { effectiveTrackingInterval } from "./tracking.mjs";
 import TrackingPanel from "./TrackingPanel";
 import { potentialHeatForecast } from "./reproduction.mjs";
 import { validateModule } from "./modules.mjs";
+import { shouldResetWorkspace } from "./authSession.mjs";
 import FarmAccess from "./FarmAccess";
 import FarmLocationPicker from "./FarmLocationPicker";
 const nav = [
@@ -444,39 +445,51 @@ export default function App() {
     trackingInterval * 1000,
   );
   const refreshGeneration = useRef(0);
+  const farmLoadGeneration = useRef(0);
+  const currentUserId = useRef(null);
   useEffect(() => {
     if (!supabase) return;
+    let receivedAuthEvent = false;
+    let cancelled = false;
     supabase.auth
       .getSession()
       .then(({ data, error }) => {
+        if (cancelled || receivedAuthEvent) return;
         if (error) setError(error.message);
+        currentUserId.current = data.session?.user?.id || null;
         setSession(data.session);
         setAuthReady(true);
       })
       .catch(() => {
+        if (cancelled || receivedAuthEvent) return;
         setError("Network: no se pudo comprobar la sesión");
         setAuthReady(true);
       });
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, s) => {
-      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
-        setSession(s);
-        setAuthReady(true);
-        return;
-      }
-      refreshGeneration.current += 1;
+      receivedAuthEvent = true;
+      const nextUserId = s?.user?.id || null;
+      const reset = shouldResetWorkspace(currentUserId.current, nextUserId, event);
+      currentUserId.current = nextUserId;
       setSession(s);
+      setAuthReady(true);
+      if (!reset) return;
+      refreshGeneration.current += 1;
+      farmLoadGeneration.current += 1;
       setData(null);
       setFarmId(null);
       setFarms(null);
       setFarmMode(null);
     });
-    return () => subscription.unsubscribe();
+    return () => { cancelled = true; subscription.unsubscribe(); };
   }, []);
   const refreshFarms = useCallback(async () => {
+    const generation = ++farmLoadGeneration.current;
+    setError((current) => current.startsWith("No se pudieron cargar las fincas") ? "" : current);
     try {
       const next = await loadFarms();
+      if (generation !== farmLoadGeneration.current) return;
       setFarms(next);
       setFarmMode((current) => current || (
         next.length === 0 ? "new" :
@@ -485,10 +498,21 @@ export default function App() {
       ));
       setError("");
     } catch (e) {
+      if (generation !== farmLoadGeneration.current) return;
       setError("No se pudieron cargar las fincas: " + e.message);
     }
   }, []);
   useEffect(() => { if (session?.user?.id) void refreshFarms(); }, [session?.user?.id, refreshFarms]);
+  useEffect(() => {
+    if (!session?.user?.id || farmId) return;
+    const resume = () => { if (!document.hidden) void refreshFarms(); };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
+    };
+  }, [session?.user?.id, farmId, refreshFarms]);
   const refresh = useCallback(async () => {
     if (!farmId) return;
     const generation = ++refreshGeneration.current;
@@ -707,7 +731,9 @@ export default function App() {
     setError("");
   };
   if (!farmId) {
-    if (!farms && !error) return <div className="loading" role="status">Cargando tus fincas…</div>;
+    if (!farms) return error
+      ? <ErrorPage error={error} onRetry={refreshFarms} onBack={leaveAccess} />
+      : <div className="loading" role="status">Cargando tus fincas…</div>;
     const draftFarm = farmMode?.startsWith("complete:")
       ? farms?.find((farm) => farm.id === farmMode.slice(9)) : null;
     return <FarmAccess
