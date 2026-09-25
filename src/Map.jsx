@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import PlaceSearch from "./PlaceSearch";
-import { collarStatus, PHYSICAL_COLLAR_ID } from "./collarStatus.mjs";
 import "leaflet/dist/leaflet.css";
 export default function HerdMap({
   animals,
@@ -9,10 +8,8 @@ export default function HerdMap({
   polygon,
   onSelect,
   onSaveBoundary,
-  isDemo = false,
   receiver = null,
   collarEnabled = true,
-  hideDemoLocations = false,
 }) {
   const [editing, setEditing] = useState(false);
   const [points, setPoints] = useState([]);
@@ -28,7 +25,8 @@ export default function HerdMap({
     }
   });
   const [tileError, setTileError] = useState(false);
-  const fittedBounds = useRef("");
+  const fittedBounds = useRef(false);
+  const fittedFirstPosition = useRef(false);
   const centeredOnFirstFix = useRef(false);
   const committedTiles = useRef(null);
   const committedBasemap = useRef(null);
@@ -36,6 +34,11 @@ export default function HerdMap({
   const tileHandlers = useRef(new WeakMap());
   const searchMarker = useRef(null);
   const receiverMarker = useRef(null);
+  const animalMarkers = useRef(new Map());
+  const editingRef = useRef(editing);
+  const onSelectRef = useRef(onSelect);
+  editingRef.current = editing;
+  onSelectRef.current = onSelect;
   const el = useRef(),
     map = useRef(),
     layer = useRef();
@@ -184,17 +187,18 @@ export default function HerdMap({
         .addTo(map.current)
         .bindTooltip("GPS recibido por LoRa");
     } else receiverMarker.current.setLatLng(position);
+    receiverMarker.current.setTooltipContent(`GPS recibido por LoRa · ${new Date(receiver.received_at).toLocaleString("es-CR")}`);
     if (!centeredOnFirstFix.current && !editing) {
       centeredOnFirstFix.current = true;
       if (!map.current.getBounds().contains(position))
         map.current.setView(position, Math.max(map.current.getZoom(), 16), { animate: false });
     }
   }, [receiver?.receiver_connected, receiver?.transmitter_connected,
-      receiver?.signal, receiver?.latitude, receiver?.longitude, collarEnabled, editing]);
+      receiver?.signal, receiver?.latitude, receiver?.longitude,
+      receiver?.received_at, collarEnabled, editing]);
   useEffect(() => {
     const group = layer.current;
     group.clearLayers();
-    const bounds = [];
     if (!editing && polygon?.length >= 3) {
       L.polygon(polygon, {
         className: "farm-boundary-halo",
@@ -212,36 +216,51 @@ export default function HerdMap({
         dashArray: "7 6",
         interactive: false,
       }).addTo(group);
-      bounds.push(...polygon);
     }
-    animals.forEach((a) => {
-      if (isDemo && hideDemoLocations) return;
-      const r = readings
-        .filter((r) => r.animal_id === a.id && r.latitude != null)
-        .sort(
-          (a, b) => Date.parse(b.recorded_at) - Date.parse(a.recorded_at),
-        )[0];
-      if (!r) return;
-      const point = [r.latitude, r.longitude];
+  }, [polygon, editing]);
+  useEffect(() => {
+    const latest = new Map();
+    for (const reading of readings) {
+      if (reading.latitude == null || reading.longitude == null) continue;
+      const previous = latest.get(reading.animal_id);
+      if (!previous || Date.parse(reading.recorded_at) > Date.parse(previous.recorded_at))
+        latest.set(reading.animal_id, reading);
+    }
+    const activeIds = new Set(animals.map((animal) => animal.id));
+    const bounds = !editing && polygon?.length >= 3 ? [...polygon] : [];
+    let hasPosition = false;
+    for (const animal of animals) {
+      const reading = latest.get(animal.id);
+      if (!reading) continue;
+      hasPosition = true;
+      const point = [reading.latitude, reading.longitude];
       bounds.push(point);
-      const marker = L.marker(point, {
-        icon: L.divIcon({
-          className: "cow-marker",
-          html: "<span>●</span>",
-          iconSize: [28, 28],
-        }),
-      }).addTo(group);
+      let marker = animalMarkers.current.get(animal.id);
+      if (!marker) {
+        marker = L.marker(point, {
+          icon: L.divIcon({ className: "cow-marker", html: "<span>●</span>", iconSize: [28, 28] }),
+        }).addTo(map.current);
+        marker.on("click", () => {
+          if (!editingRef.current) onSelectRef.current(animal.id);
+        });
+        animalMarkers.current.set(animal.id, marker);
+      } else if (!marker.getLatLng().equals(point)) marker.setLatLng(point);
       const label = document.createElement("div");
-      label.textContent = `${a.name} · ${new Date(r.recorded_at).toLocaleString("es-CR")}`;
-      marker.bindTooltip(label);
-      marker.on("click", () => {
-        if (!editing) onSelect(a.id);
-      });
-    });
-    const boundsKey = JSON.stringify(bounds);
-    if (bounds.length && !editing && boundsKey !== fittedBounds.current) {
+      label.textContent = `${animal.name} · ${new Date(reading.recorded_at).toLocaleString("es-CR")}`;
+      if (marker.getTooltip()) marker.setTooltipContent(label);
+      else marker.bindTooltip(label);
+    }
+    for (const [id, marker] of animalMarkers.current) {
+      if (activeIds.has(id) && latest.has(id)) continue;
+      marker.remove();
+      animalMarkers.current.delete(id);
+    }
+    const shouldFit = bounds.length && !editing &&
+      (!fittedBounds.current || (hasPosition && !fittedFirstPosition.current));
+    if (shouldFit) {
       const firstFit = !fittedBounds.current;
-      fittedBounds.current = boundsKey;
+      fittedBounds.current = true;
+      if (hasPosition) fittedFirstPosition.current = true;
       const firstLiveFix = firstFit && collarEnabled &&
         receiver?.receiver_connected && receiver?.transmitter_connected &&
         receiver.signal === "fix" && Number.isFinite(receiver.latitude) &&
@@ -257,10 +276,7 @@ export default function HerdMap({
     animals,
     readings,
     polygon,
-    onSelect,
     editing,
-    isDemo,
-    hideDemoLocations,
   ]);
   useEffect(() => {
     if (!editing || saving) return;
@@ -321,27 +337,6 @@ export default function HerdMap({
   }, [editing, points, saving]);
   return (
     <div className={`map-view map-${basemap}`}>
-      {onSaveBoundary && isDemo && (
-        <div className="receiver-status" role="status">
-          <strong>Collar {PHYSICAL_COLLAR_ID}</strong>
-          <span>{collarStatus({ id: PHYSICAL_COLLAR_ID, enabled: collarEnabled }, receiver).label}</span>
-          {collarEnabled && receiver?.signal === "fix" && receiver?.receiver_connected && receiver?.transmitter_connected && (
-            <span>
-              GPS recibido: {receiver.latitude.toFixed(6)},{" "}
-              {receiver.longitude.toFixed(6)} · RSSI {receiver.rssi} dBm
-            </span>
-          )}
-          {collarEnabled && receiver?.receiver_connected && receiver?.transmitter_connected && receiver?.signal === "fix" && Number.isFinite(receiver?.latitude) && Number.isFinite(receiver?.longitude) && (
-            <button
-              type="button"
-              className="text-link receiver-center"
-              onClick={() => map.current?.setView([receiver.latitude, receiver.longitude], 16, { animate: false })}
-            >
-              Centrar collar
-            </button>
-          )}
-        </div>
-      )}
       <PlaceSearch
         onSelect={(place) => {
           map.current.setView(place.coordinates, 16, { animate: false });

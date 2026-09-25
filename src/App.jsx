@@ -29,7 +29,7 @@ import {
   Sun,
   Moon,
 } from "lucide-react";
-import { supabase, loadDemo, saveDemo, loadCloud, writeCloud } from "./data";
+import { supabase, loadCloud, writeCloud } from "./data";
 import {
   uid,
   today,
@@ -45,6 +45,10 @@ import { configurationError } from "./data";
 import MotionContent from "./MotionContent";
 import useReceiverStatus from "./useReceiverStatus";
 import { collarStatus, PHYSICAL_COLLAR_ID } from "./collarStatus.mjs";
+import { effectiveTrackingInterval } from "./tracking.mjs";
+import TrackingPanel from "./TrackingPanel";
+import { potentialHeatForecast } from "./reproduction.mjs";
+import { validateModule } from "./modules.mjs";
 const nav = [
   ["overview", "Resumen", LayoutDashboard],
   ["animals", "Mi ganado", CattleIcon],
@@ -138,7 +142,7 @@ function ThemeSwitch({ theme, onChange }) {
     </div>
   );
 }
-function Preferences({ theme, onChange, onSettings, onHelp, onExit }) {
+function Preferences({ theme, onChange, onSettings, onTracking, onHelp, onExit }) {
   const [open, setOpen] = useState(false);
   const root = useRef(null);
   const trigger = useRef(null);
@@ -198,6 +202,17 @@ function Preferences({ theme, onChange, onSettings, onHelp, onExit }) {
             <Settings size={18} />
             Configuración de la finca
             <ArrowUpRight size={16} />
+          </button>
+          <button
+            type="button"
+            className="preferences-settings"
+            onClick={() => {
+              setOpen(false);
+              onTracking();
+            }}
+          >
+            <Radio size={18} />
+            Rastreo y diagnóstico
           </button>
           <button
             type="button"
@@ -401,13 +416,6 @@ export default function App() {
   }, [theme]);
   const [session, setSession] = useState(null),
     [authReady, setAuthReady] = useState(!supabase),
-    [demo, setDemo] = useState(() => {
-      try {
-        return sessionStorage.getItem("smartherd-demo-access") === "true";
-      } catch {
-        return false;
-      }
-    }),
     [data, setData] = useState(null),
     [page, setPage] = useState("overview"),
     [selected, setSelected] = useState(null),
@@ -418,10 +426,13 @@ export default function App() {
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
     [clock, setClock] = useState(Date.now());
-  const receiver = useReceiverStatus(demo && !!data);
-  const hadLiveReceiver = useRef(false);
+  const trackingInterval = effectiveTrackingInterval(data?.tracking, clock);
+  const { receiver, refresh: refreshReceiver } = useReceiverStatus(
+    !!session && !!data?.devices.some((device) =>
+      device.id === PHYSICAL_COLLAR_ID && device.enabled),
+    trackingInterval * 1000,
+  );
   const refreshGeneration = useRef(0);
-  if (receiver?.receiver_connected) hadLiveReceiver.current = true;
   useEffect(() => {
     if (!supabase) return;
     supabase.auth
@@ -452,7 +463,7 @@ export default function App() {
   const refresh = useCallback(async () => {
     const generation = ++refreshGeneration.current;
     try {
-      const next = demo ? loadDemo() : await loadCloud();
+      const next = await loadCloud();
       if (generation === refreshGeneration.current) {
         setError("");
         setData(next);
@@ -461,29 +472,30 @@ export default function App() {
       if (generation === refreshGeneration.current)
         setError("No se pudieron cargar los datos: " + e.message);
     }
-  }, [demo]);
+  }, []);
   useEffect(() => {
-    refreshGeneration.current += 1;
-  }, [demo]);
-  useEffect(() => {
-    if (demo || session) refresh();
-  }, [demo, session, refresh]);
+    if (session) refresh();
+  }, [session, refresh]);
   useEffect(() => {
     const id = setInterval(() => {
       setClock(Date.now());
-      if (!demo && session) refresh();
-    }, 30000);
+    }, 5000);
     return () => clearInterval(id);
-  }, [demo, session, refresh]);
+  }, []);
   useEffect(() => {
-    if (demo || !session?.user?.id || !supabase) return;
+    if (!session) return;
+    const id = setInterval(() => { if (!document.hidden) void refresh(); }, trackingInterval * 1000);
+    return () => clearInterval(id);
+  }, [session, refresh, trackingInterval]);
+  useEffect(() => {
+    if (!session?.user?.id || !supabase) return;
     let timer;
     const queueRefresh = () => {
       clearTimeout(timer);
       timer = setTimeout(() => { if (!document.hidden) void refresh(); }, 250);
     };
     const channel = supabase.channel(`smartherd-live-${session.user.id}-${Date.now()}`);
-    for (const table of ["telemetry", "devices", "animals", "events", "farm_settings", "alert_acknowledgements"])
+    for (const table of ["telemetry", "devices", "animals", "events", "farm_settings", "alert_acknowledgements", "tracking_mode", "module_registry"])
       channel.on("postgres_changes", {
         event: "*", schema: "public", table,
         filter: `owner_id=eq.${session.user.id}`,
@@ -498,7 +510,7 @@ export default function App() {
       window.removeEventListener("online", resume);
       void supabase.removeChannel(channel);
     };
-  }, [demo, session?.user?.id, refresh]);
+  }, [session?.user?.id, refresh]);
   useEffect(() => {
     if (!notice) return;
     const id = setTimeout(() => setNotice(""), 5000);
@@ -515,20 +527,9 @@ export default function App() {
       setBusy(false);
     }
   };
-  const save = async (table, row, key) => {
-    if (demo) {
-      setData((prev) => {
-        const next = {
-          ...prev,
-          [key]: [...prev[key].filter((x) => x.id !== row.id), row],
-        };
-        saveDemo(next);
-        return next;
-      });
-    } else {
-      await writeCloud(table, { ...row, owner_id: session.user.id });
-      await refresh();
-    }
+  const save = async (table, row) => {
+    await writeCloud(table, { ...row, owner_id: session.user.id });
+    await refresh();
     setNotice("Cambios guardados");
   };
   const choose = useCallback((id) => {
@@ -538,9 +539,13 @@ export default function App() {
   const allAlerts = useMemo(
     () =>
       data
-        ? data.animals.flatMap((a) =>
-            alertsFor(a, data.readings, data.settings, clock),
-          )
+        ? data.animals.flatMap((a) => {
+            const forecast = potentialHeatForecast(a, data.events, today());
+            return [
+              ...alertsFor(a, data.readings, data.settings, clock),
+              ...(forecast?.active ? [forecast] : []),
+            ];
+          })
         : [],
     [data, clock],
   );
@@ -554,44 +559,11 @@ export default function App() {
   const latest = rows[0];
   const acknowledge = (alert) =>
     act(async () => {
-      if (demo) {
-        const next = {
-          ...data,
-          acknowledged: [...data.acknowledged, alert.id],
-        };
-        saveDemo(next);
-        setData(next);
-      } else {
-        await writeCloud("alert_acknowledgements", {
-          owner_id: session.user.id,
-          alert_id: alert.id,
-        });
-        await refresh();
-      }
-    });
-  const simulate = () =>
-    act(async () => {
-      const additions = data.devices
-        .filter((d) => d.enabled && d.animal_id)
-        .map((d, i) => ({
-          id: uid(),
-          device_id: d.id,
-          animal_id: d.animal_id,
-          packet_id: uid(),
-          recorded_at: new Date().toISOString(),
-          temperature_c: Math.round((33 + Math.random() * 1.2) * 10) / 10,
-          activity: Math.round(23 + Math.random() * 12),
-          battery_pct: 70,
-          latitude: 10.001 + i * 0.0006,
-          longitude: -84.116 + i * 0.0007,
-        }));
-      const next = {
-        ...data,
-        readings: [...data.readings, ...additions].slice(-5000),
-      };
-      saveDemo(next);
-      setData(next);
-      setNotice(`${additions.length} lecturas simuladas recibidas`);
+      await writeCloud("alert_acknowledgements", {
+        owner_id: session.user.id,
+        alert_id: alert.id,
+      });
+      await refresh();
     });
   const exportCSV = () => {
     const fields = [
@@ -651,17 +623,13 @@ export default function App() {
         return;
       }
     }
-    try {
-      sessionStorage.removeItem("smartherd-demo-access");
-    } catch {}
-    setDemo(false);
     setData(null);
     setError("");
     setPage("overview");
     setSelected(null);
     setModal(null);
   };
-  if (!demo && !session)
+  if (!session)
     return (
       <Login
         brand={<BrandMark />}
@@ -678,13 +646,6 @@ export default function App() {
             if (error) throw error;
           })
         }
-        onDemo={() => {
-          try {
-            sessionStorage.setItem("smartherd-demo-access", "true");
-          } catch {}
-          setDemo(true);
-          setError("");
-        }}
       />
     );
   if (!data)
@@ -706,7 +667,6 @@ export default function App() {
       ),
   ).length;
   const physicalDevice = data.devices.find((device) => device.id === PHYSICAL_COLLAR_ID);
-  const physicalStatus = physicalDevice && collarStatus(physicalDevice, receiver);
   const title = nav.find((n) => n[0] === page)?.[1];
   const alertList = (list, compact = false) =>
     list.length ? (
@@ -771,9 +731,7 @@ export default function App() {
           <span className="farm-avatar">{data.settings.name.slice(0, 1)}</span>
           <div>
             <strong>{data.settings.name}</strong>
-            <small>
-              {demo ? "Finca de demostración" : "Mi espacio de trabajo"}
-            </small>
+            <small>Mi espacio de trabajo</small>
           </div>
         </div>
         <p className="nav-caption">ADMINISTRACIÓN</p>
@@ -798,33 +756,16 @@ export default function App() {
           <FarmLandscape />
           <div className="connection">
             <span className="dot" />
-            {demo ? "Demostración local" : "Supabase conectado"}
+            Supabase conectado
           </div>
-          <p>
-            {demo
-              ? "Datos de ejemplo guardados en este navegador."
-              : "Actualización automática cada 30 segundos."}
-          </p>
+          <p>Ubicación actualizada al recibir reportes.</p>
           {supabase && (
             <button
               className="text-link"
-              onClick={() =>
-                act(async () => {
-                  if (demo) {
-                    try {
-                      sessionStorage.removeItem("smartherd-demo-access");
-                    } catch {}
-                    setDemo(false);
-                    setData(null);
-                  } else {
-                    await supabase.auth.signOut();
-                    setData(null);
-                  }
-                })
-              }
+              onClick={() => act(leaveAccess)}
             >
               <LogOut size={15} />
-              {demo ? "Volver al acceso" : "Cerrar sesión"}
+              Cerrar sesión
             </button>
           )}
           <small>EXPO TÉCNICA · 2026</small>
@@ -849,6 +790,7 @@ export default function App() {
             <Preferences
               theme={theme}
               onChange={setTheme}
+              onTracking={() => setModal({ type: "tracking" })}
               onHelp={() => setModal({ type: "diagnostics" })}
               onExit={() => act(leaveAccess)}
               onSettings={() => {
@@ -863,18 +805,9 @@ export default function App() {
             {page === "overview" && <h1 className="sr-only">Resumen</h1>}
             <span className="workspace-status">
               <span className="dot" />
-              {demo ? "Demostración · datos ficticios" : data.settings.name}
+              {data.settings.name}
             </span>
             <div className="toolbar-actions">
-              {demo && (
-                <button
-                  className="secondary simulate-button"
-                  onClick={simulate}
-                  disabled={busy}
-                >
-                  <Radio size={17} /> Simular lecturas
-                </button>
-              )}
               {page === "overview" && (
                 <button
                   className="primary"
@@ -948,8 +881,8 @@ export default function App() {
                   ],
                   [
                     Wifi,
-                    demo ? "Collar físico" : "Collares con señal",
-                    demo ? (physicalStatus?.label || "Sin vincular") : `${connected} / ${data.devices.length}`,
+                    "Collares con señal",
+                    `${connected} / ${data.devices.length}`,
                     "Ver collares",
                     () => setPage("devices"),
                   ],
@@ -971,7 +904,6 @@ export default function App() {
                   <button
                     className={
                       "stat stat-link" +
-                      (demo && label === "Collar físico" ? " stat-connection" : "") +
                       (label === "Por revisar" && alerts.length
                         ? " stat-attention"
                         : "")
@@ -1012,16 +944,14 @@ export default function App() {
                     readings={data.readings}
                     polygon={data.settings.polygon}
                     onSelect={choose}
-                    isDemo={demo}
                     receiver={receiver}
                     collarEnabled={physicalDevice?.enabled ?? false}
-                    hideDemoLocations={hadLiveReceiver.current}
                   />
                   <div className="map-legend">
                     <span>
                       <i /> Cerca de la finca
                     </span>
-                    <span>● {demo ? "Ubicaciones de demostración o GPS recibido" : "Última posición recibida"}</span>
+                    <span>● Última posición recibida</span>
                   </div>
                 </section>
                 <section className="panel attention-panel">
@@ -1214,6 +1144,13 @@ export default function App() {
                   <h2>Historial sanitario y reproductivo</h2>
                   <ClipboardList size={20} />
                 </div>
+                {(() => {
+                  const forecast = potentialHeatForecast(animal, data.events, today());
+                  return forecast && <p className="hint" role="status">
+                    <strong>{forecast.active ? "Potencialmente en Celo" : "Próxima ventana orientativa"}:</strong>{" "}
+                    {forecast.detail}
+                  </p>;
+                })()}
                 {data.events.filter((e) => e.animal_id === animal.id).length ? (
                   <div className="table-wrap">
                     <table>
@@ -1261,24 +1198,16 @@ export default function App() {
           {page === "map" && (
             <section className="panel full-map">
               <HerdMap
-                isDemo={demo}
                 receiver={receiver}
                 collarEnabled={physicalDevice?.enabled ?? false}
-                hideDemoLocations={hadLiveReceiver.current}
                 onSaveBoundary={async (polygon) => {
                   const settings = { ...data.settings, polygon };
                   validateSettings(settings);
-                  if (demo) {
-                    const next = { ...data, settings };
-                    saveDemo(next);
-                    setData(next);
-                  } else {
-                    await writeCloud("farm_settings", {
-                      ...settings,
-                      owner_id: session.user.id,
-                    });
-                    await refresh();
-                  }
+                  await writeCloud("farm_settings", {
+                    ...settings,
+                    owner_id: session.user.id,
+                  });
+                  await refresh();
                   setNotice("Perímetro de la finca guardado");
                 }}
                 animals={active}
@@ -1287,11 +1216,10 @@ export default function App() {
                 onSelect={choose}
               />
               <div className="map-legend">
-                {demo
-                  ? "Las ubicaciones de ejemplo aparecen antes de conectar el receptor. Una ubicación real requiere GPS válido."
-                  : "Selecciona un marcador para abrir la ficha. Consulta la hora del reporte."}
+                Selecciona un marcador para abrir la ficha. Consulta la hora del reporte.
               </div>
-              {!data.readings.some((r) => r.latitude != null) && (
+              {!data.readings.some((r) => r.latitude != null) &&
+                !(receiver?.signal === "fix" && physicalDevice?.enabled) && (
                 <Empty>Todavía no se han recibido coordenadas GPS.</Empty>
               )}
             </section>
@@ -1307,9 +1235,9 @@ export default function App() {
               </section>
               <p className="hint">
                 Al marcar una señal como revisada, se reconoce únicamente esa
-                lectura. Una nueva lectura puede generar otra alerta. Las
-                alertas se calculan al abrir el panel y cada 30 segundos; no se
-                envían por SMS o correo.
+                lectura o ventana estimada. Una nueva lectura o un nuevo evento
+                reproductivo puede generar otra alerta. Las alertas aparecen en
+                la aplicación; no se envían por SMS o correo.
               </p>
             </>
           )}
@@ -1329,7 +1257,6 @@ export default function App() {
                   <h2>Collares vinculados</h2>
                   <Radio size={21} />
                 </div>
-                {demo && <p className="hint" role="status" aria-live="polite">Estado local actualizado cada 3 segundos. El collar {PHYSICAL_COLLAR_ID} corresponde al ESP32 con GPS; los demás son ejemplos.</p>}
                 {data.devices.length ? (
                   <div className="table-wrap">
                     <table>
@@ -1351,7 +1278,9 @@ export default function App() {
                                 Date.parse(b.recorded_at) -
                                 Date.parse(a.recorded_at),
                             )[0];
-                          const live = demo ? collarStatus(d, receiver) : null;
+                          const live = d.id === PHYSICAL_COLLAR_ID && receiver
+                            ? collarStatus(d, receiver, clock, trackingInterval)
+                            : null;
                           return (
                             <tr key={d.id}>
                               <td>
@@ -1361,7 +1290,7 @@ export default function App() {
                                 {data.animals.find((a) => a.id === d.animal_id)
                                   ?.name || "Sin animal"}
                               </td>
-                              <td>{demo ? d.id === PHYSICAL_COLLAR_ID ? stamp(receiver?.received_at) : "Solo ejemplo" : stamp(r?.recorded_at)}</td>
+                              <td>{stamp(r?.recorded_at || (d.id === PHYSICAL_COLLAR_ID ? receiver?.received_at : null))}</td>
                               <td>
                                 <Badge
                                   tone={
@@ -1420,7 +1349,7 @@ export default function App() {
               <p className="hint">
                 La estación base necesita acceso a internet para enviar datos.
                 Vincular un collar aquí no configura físicamente el ESP32. La
-                guía incluye el contrato de envío y un simulador.
+                guía incluye el contrato de envío.
               </p>
             </>
           )}
@@ -1431,17 +1360,11 @@ export default function App() {
               onSave={(s) =>
                 act(async () => {
                   validateSettings(s);
-                  if (demo) {
-                    const next = { ...data, settings: s };
-                    saveDemo(next);
-                    setData(next);
-                  } else {
-                    await writeCloud("farm_settings", {
-                      ...s,
-                      owner_id: session.user.id,
-                    });
-                    await refresh();
-                  }
+                  await writeCloud("farm_settings", {
+                    ...s,
+                    owner_id: session.user.id,
+                  });
+                  await refresh();
                   setNotice("Configuración guardada");
                 })
               }
@@ -1457,6 +1380,48 @@ export default function App() {
           </footer>
         </MotionContent>
       </main>
+      {modal?.type === "tracking" && (
+        <Modal title="Rastreo y diagnóstico" onClose={() => setModal(null)}>
+          <TrackingPanel
+            tracking={data.tracking}
+            modules={data.modules}
+            devices={data.devices}
+            receiver={receiver}
+            onTestReceiver={refreshReceiver}
+            intervalSeconds={trackingInterval}
+            busy={busy}
+            onMode={(intervalSeconds) => act(async () => {
+              await writeCloud("tracking_mode", {
+                owner_id: session.user.id,
+                interval_seconds: intervalSeconds,
+                live_until: intervalSeconds === 5
+                  ? new Date(Date.now() + 15 * 60_000).toISOString()
+                  : null,
+                requested_at: new Date().toISOString(),
+              });
+              await refresh();
+              setNotice(intervalSeconds === 5
+                ? "Rastreo rápido solicitado durante 15 minutos"
+                : "Modo habitual solicitado");
+            })}
+            onAddModule={(input) => act(async () => {
+              const row = validateModule(input, data.devices, data.modules);
+              await writeCloud("module_registry", { ...row, owner_id: session.user.id });
+              await refresh();
+              setNotice("Módulo registrado; pendiente de comprobar la comunicación física");
+            })}
+            onRemoveModule={(moduleId) => act(async () => {
+              const { error } = await supabase.from("module_registry").delete()
+                .eq("owner_id", session.user.id).eq("module_id", moduleId);
+              if (error) throw error;
+              await refresh();
+              setNotice("Módulo eliminado del registro");
+            })}
+            onLinkCollar={() => setModal({ type: "device" })}
+            error={error}
+          />
+        </Modal>
+      )}
       {modal?.type === "diagnostics" && (
         <Modal title="Ayuda y diagnóstico" onClose={() => setModal(null)}>
           {error ? (
@@ -1464,10 +1429,7 @@ export default function App() {
           ) : (
             <div className="diagnostic-help">
               <p>No hay un error registrado en este momento.</p>
-              <p>
-                <strong>Modo:</strong>{" "}
-                {demo ? "Demostración local" : "Cuenta de finca"}
-              </p>
+              <p><strong>Modo:</strong> Cuenta de finca</p>
               <p>
                 <strong>Acceso con cuenta:</strong>{" "}
                 {supabase ? "Configurado" : "Pendiente de configurar Supabase"}
@@ -1888,7 +1850,7 @@ function SettingsForm({ settings: s, busy, onSave }) {
       <section className="panel">
         <h2>Criterios para revisar</h2>
         <p className="hint">
-          Valores iniciales de demostración. Ajustar con observaciones de campo;
+          Valores iniciales orientativos. Ajustar con observaciones de campo;
           no son umbrales clínicos.
         </p>
         <Field label="Sin lecturas durante (minutos)">

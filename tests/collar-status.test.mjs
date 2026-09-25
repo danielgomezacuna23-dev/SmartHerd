@@ -18,7 +18,7 @@ const online = {
 };
 
 test("estados del collar físico distinguen GPS, LoRa, desconexión y desactivación", () => {
-  const label = (d, status) => collarStatus(d, status, now).label;
+  const label = (d, status) => collarStatus(d, status, now, 5).label;
   assert.equal(label(device, online), "GPS y LoRa activos");
   assert.equal(label(device, { ...online, signal: "no_fix" }), "Sin señal GPS");
   assert.equal(label(device, { ...online, received_at: old }), "Sin señal LoRa");
@@ -28,7 +28,7 @@ test("estados del collar físico distinguen GPS, LoRa, desconexión y desactivac
   assert.equal(label(device, { ...online, receiver_connected: false }), "Receptor desconectado");
   assert.equal(label(device, { ...online, last_tx_at: old }), "Sin transmisión");
   assert.equal(label(device, null), "Monitoreo no disponible");
-  assert.equal(label({ id: "SH-COLLAR-002", enabled: true }, online), "Sin módulo físico");
+  assert.equal(label({ id: "SH-COLLAR-002", enabled: true }, online), "Sin receptor local");
 });
 
 test("rechaza estados del puente con identidad o coordenadas inválidas", () => {

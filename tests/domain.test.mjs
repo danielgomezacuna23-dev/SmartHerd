@@ -7,7 +7,6 @@ import {
   validateSettings,
   alertsFor,
   defaults,
-  makeSeed,
 } from "../src/domain.mjs";
 const now = Date.now();
 const packet = {
@@ -106,13 +105,4 @@ test("rechaza límites y geocercas degeneradas", () => {
   );
   assert.throws(() => validateSettings({ ...defaults, offline_minutes: 0 }));
   assert.deepEqual(validateSettings(defaults), defaults);
-});
-test("demo tiene collares, historial y alertas de salida", () => {
-  const s = makeSeed();
-  assert.equal(s.animals.length, 5);
-  assert(
-    s.animals
-      .flatMap((a) => alertsFor(a, s.readings, s.settings))
-      .some((a) => a.kind === "fence"),
-  );
 });

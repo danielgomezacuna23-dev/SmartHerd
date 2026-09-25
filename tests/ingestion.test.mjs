@@ -6,8 +6,10 @@ const token = "a".repeat(64),
   hash = createHash("sha256").update(token).digest("hex");
 function mockDatabase() {
   const stored = [];
+  let tracking = null;
   return {
     stored,
+    setTracking(value) { tracking = value; },
     from(table) {
       const filters = {};
       return {
@@ -38,6 +40,8 @@ function mockDatabase() {
                     }
                   : null,
             };
+          if (table === "tracking_mode")
+            return { data: filters.owner_id === "owner-1" ? tracking : null };
           throw Error("Tabla inesperada");
         },
         async insert(p) {
@@ -87,7 +91,7 @@ test("HTTP: autentica estación, valida vínculo, ignora propietario del cliente
 test("HTTP: rechaza método, formato, tamaño y valores inválidos sin guardar", async () => {
   const db = mockDatabase(),
     handle = createHandler(db);
-  assert.equal((await handle(request(packet, token, "GET"))).status, 405);
+  assert.equal((await handle(request(packet, token, "DELETE"))).status, 405);
   assert.equal((await handle(request(packet, "not-a-token"))).status, 401);
   assert.equal(
     (await handle(request({ ...packet, activity: 200 }))).status,
@@ -113,4 +117,18 @@ test("HTTP: rechaza método, formato, tamaño y valores inválidos sin guardar",
     400,
   );
   assert.equal(db.stored.length, 0);
+});
+test("HTTP: estación autenticada recibe modo habitual o rápido vigente", async () => {
+  const db = mockDatabase(), handle = createHandler(db);
+  assert.deepEqual(await (await handle(request(packet, token, "GET"))).json(), {
+    interval_seconds: 300, live_until: null,
+  });
+  const liveUntil = new Date(Date.now() + 60_000).toISOString();
+  db.setTracking({ interval_seconds: 5, live_until: liveUntil });
+  assert.deepEqual(await (await handle(request(packet, token, "GET"))).json(), {
+    interval_seconds: 5, live_until: liveUntil,
+  });
+  db.setTracking({ interval_seconds: 5, live_until: new Date(Date.now() - 60_000).toISOString() });
+  assert.equal((await (await handle(request(packet, token, "GET"))).json()).interval_seconds, 300);
+  assert.equal((await handle(request(packet, "b".repeat(64), "GET"))).status, 401);
 });

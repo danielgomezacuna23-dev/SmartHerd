@@ -10,7 +10,6 @@ export default function Login({
   error,
   busy,
   onLogin,
-  onDemo,
 }) {
   const [visible, setVisible] = useState(false);
   const [help, setHelp] = useState(false);
@@ -74,8 +73,7 @@ export default function Login({
             )}
             {!configured && (
               <p className="access-info">
-                El acceso con cuenta todavía no está habilitado. Puedes explorar
-                la demostración.
+                No se pudo conectar con Supabase. Revisa la configuración del sitio.
               </p>
             )}
             <button className="primary" disabled={busy || !configured}>
@@ -107,13 +105,6 @@ export default function Login({
               )}
             </div>
           )}
-          <div className="access-divider">
-            <span>O conoce la aplicación</span>
-          </div>
-          <button className="secondary" disabled={busy} onClick={onDemo}>
-            Explorar demostración
-          </button>
-          <small>Datos ficticios guardados en este navegador.</small>
         </section>
       </div>
       <footer className="access-footer">SmartHerd · Expo Técnica 2026</footer>

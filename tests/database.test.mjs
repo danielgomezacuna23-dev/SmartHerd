@@ -17,6 +17,9 @@ test("migración, aislamiento de fincas, escritura de telemetría y deduplicaci�
         "utf8",
       ),
     );
+    await db.exec("create publication supabase_realtime;");
+    for (const migration of ["202609250001_tracking_mode.sql", "202609250002_module_registry.sql"])
+      await db.exec(readFileSync(new URL(`../supabase/migrations/${migration}`, import.meta.url), "utf8"));
     const alice = "00000000-0000-4000-8000-000000000001",
       bob = "00000000-0000-4000-8000-000000000002",
       a = "00000000-0000-4000-8000-000000000003",
@@ -38,6 +41,9 @@ test("migración, aislamiento de fincas, escritura de telemetría y deduplicaci�
     await db.exec(
       `insert into devices(id,owner_id,animal_id) values ('SH-COLLAR-001','${alice}','${a}')`,
     );
+    await db.exec(`insert into tracking_mode(owner_id,interval_seconds,live_until) values ('${alice}',300,null)`);
+    await db.exec(`insert into module_registry(owner_id,module_id,role,name,device_id) values ('${alice}','68EE8F4F3220','emisor','Collar 1','SH-COLLAR-001')`);
+    await assert.rejects(() => db.exec(`insert into module_registry(owner_id,module_id,role,name,device_id) values ('${bob}','68EE8F4F5020','receptor','Otra finca',null)`));
     await assert.rejects(() => db.query("select * from gateway_credentials"));
     const insert = `insert into telemetry(owner_id,device_id,animal_id,packet_id,recorded_at,activity) values('${alice}','SH-COLLAR-001','${a}','p-1',now(),25)`;
     await assert.rejects(() => db.exec(insert));
@@ -48,6 +54,8 @@ test("migración, aislamiento de fincas, escritura de telemetría y deduplicaci�
       `reset role;set role authenticated;set request.jwt.claim.sub='${bob}';`,
     );
     assert.equal((await db.query("select * from telemetry")).rows.length, 0);
+    assert.equal((await db.query("select * from module_registry")).rows.length, 0);
+    assert.equal((await db.query("select * from tracking_mode")).rows.length, 0);
     await db.exec(`set request.jwt.claim.sub='${alice}';`);
     assert.equal((await db.query("select * from telemetry")).rows.length, 1);
     await assert.rejects(() => db.exec(`update telemetry set activity=100`));

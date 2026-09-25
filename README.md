@@ -1,139 +1,57 @@
 # SmartHerd
 
-Prototipo funcional de gestión ganadera, basado en Hato-Ganaderia y en `SmartHerd ExpoTecnica2026.docx`. Está preparado para Supabase y para recibir mediciones de una estación ESP32 que concentre datos de collares LoRa.
+Aplicación web de gestión ganadera para la ExpoTécnica 2026. La [página pública](https://danielgomezacuna23-dev.github.io/SmartHerd/) usa Supabase para iniciar sesión, guardar datos de la finca y recibir telemetría; ya no incluye acceso ni registros de demostración.
 
-La demostración pública está en [SmartHerd](https://danielgomezacuna23-dev.github.io/SmartHerd/). Usa el proyecto Supabase dedicado `vqtgbgkwleveevlmguqe` para el acceso con cuenta y los datos en nube. La demostración se puede explorar sin cuenta y guarda sus cambios solo en el navegador.
+## Funciones
 
-## Probar ahora
+- Registro de animales, eventos sanitarios y reproductivos, collares, lecturas y alertas. Un collar se vincula a un animal activo.
+- Mapa normal o satelital con ubicación recibida, hora de lectura y perímetro poligonal editable. La búsqueda de lugares usa Photon.
+- El menú de **tres puntos junto al perfil → Rastreo y diagnóstico** contiene el modo habitual (consulta cada 5 minutos), **Rastrear en tiempo real** (consulta cada 5 segundos durante 15 minutos), pruebas de LoRa/GPS y registro de módulos.
+- En el registro de módulos, **emisor** significa ESP32 del collar con GPS y debe asociarse a un collar; **receptor** significa estación LoRa. Se guarda la MAC de 12 dígitos hexadecimales para no confundirlos. Registrar un módulo no programa el ESP32 ni demuestra que esté conectado.
+- El historial reproductivo puede generar la alerta **Potencialmente en Celo** en la web. Después de un celo observado estima una ventana de 18 a 24 días; después de un parto muestra una ventana más amplia de 40 a 60 días. Una preñez confirmada posterior suspende esa estimación. No extrapola ciclos sucesivos sin una nueva observación. No genera avisos push ni diagnósticos automáticos.
+- Los temas aprobados son **Tierra cálida** para claro y **Cacao y terracota** para oscuro.
+
+Las vacas son poliéstricas todo el año: la estación del año no da una fecha de celo fiable por sí sola. El ciclo típico es de unos 21 días (rango 18–24) y el retorno posparto depende de nutrición, amamantamiento y condición corporal; un celo temprano incluso puede pasar inadvertido. Por eso la alerta indica una **posibilidad que requiere observación o consulta veterinaria**, no una confirmación ni una recomendación de inseminación. Fuentes: [Merck Veterinary Manual, ciclo reproductivo](https://www.merckvetmanual.com/multimedia/table/features-of-the-reproductive-cycle), [University of Florida IFAS, anestro posparto](https://ask.ifas.ufl.edu/publication/AN277), [Merck, control del celo en bovinos](https://www.merckvetmanual.com/management-and-nutrition/hormonal-control-of-estrus/hormonal-control-of-estrus-in-cattle).
+
+## Estado de la conexión LoRa
+
+La página muestra telemetría real guardada en Supabase cuando una estación autorizada la envía a `ingest-telemetry`. También puede leer el puente local `http://127.0.0.1:8765/status` en la **misma Mac** para el collar `SH-COLLAR-001` cuando los dos ESP32 están conectados allí. Las pruebas de LoRa/GPS del menú consultan ese puente; no inventan resultados si no está disponible. Para utilizar esas pruebas desde otro dispositivo, hay que instalar un puente o diagnóstico remoto autenticado.
+
+La preferencia de 5 minutos/5 segundos se guarda en `tracking_mode` y la estación puede consultarla mediante `GET /functions/v1/ingest-telemetry` con su clave de estación. La web ajusta su frecuencia de consulta. **El firmware actual todavía transmite cada 15 segundos y no obedece esta preferencia**: para conseguir el ahorro de batería real y el cambio físico a 5 segundos será necesario actualizar y probar ambos ESP32 cuando vuelvan a conectarse. Esta sesión solo preparó software y web; no se realizó una prueba física nueva ni una prueba de posición GPS bajo cielo abierto.
+
+El emisor con GPS probado anteriormente es la placa conectada directamente, MAC `68:EE:8F:4F:32:20`; el receptor sin GPS es la placa del hub, MAC `68:EE:8F:4F:50:20`. Esos datos históricos sirven para identificarlas, pero hay que verificar de nuevo las placas al conectarlas. Consulta la [guía de hardware](../smartherd-hardware/README.md) y el [contrato de telemetría](docs/ESP32.md).
+
+## Instalación y Supabase
 
 ```sh
 npm ci
+cp .env.example .env
 npm run dev
 ```
 
-Abre la dirección local indicada. La página de **Iniciar sesión** permite ingresar con una cuenta Supabase o pulsar **Explorar demostración**: cinco animales ficticios, cuatro collares y lecturas de ejemplo. Sin variables de Supabase, el acceso con cuenta queda deshabilitado y la demostración sigue disponible. La elección de demo dura la sesión de la pestaña; los datos se conservan en el almacenamiento local. “Simular lecturas” agrega reportes ficticios; no transmite a Supabase ni a hardware. Si quieres reiniciar esta demostración, respalda antes los datos y borra únicamente la entrada `smartherd-demo-v1` del almacenamiento local del sitio.
+Completa `.env` con `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` del proyecto dedicado. Solo se usa una clave pública en el navegador; **nunca** coloques `service_role` ni la clave de estación en variables `VITE`.
 
-## Acceso y diagnóstico
-
-- El formulario usa Supabase Auth con correo y contraseña. Las cuentas y su recuperación las gestiona el administrador de la finca; la aplicación no crea cuentas ni simula un inicio de sesión real.
-- Los tres puntos junto al perfil incluyen **Volver al acceso** y **Ayuda y diagnóstico**. Salir no elimina los datos guardados.
-- Los errores de carga muestran una pantalla con causa probable, pasos y una referencia: `AUTH-01/02/03` (credenciales, confirmación o sesión), `NET-01` (conexión), `CONFIG-01` (configuración), `LOCAL-01` (almacenamiento), `DATA-01` (base de datos), `APP-01` (error no identificado). Las causas son orientativas; los códigos no sustituyen los registros del servidor.
-- Los errores de renderizado tienen una pantalla de recuperación y las rutas desconocidas muestran `WEB-404`. Los mensajes de diagnóstico no incluyen contraseñas ni claves.
-- `node tests/access.mjs` verifica acceso local, temas, demo, salida sin pérdida de datos y recuperación de almacenamiento. El acceso con cuentas reales requiere un proyecto Supabase configurado y una cuenta habilitada; estas pruebas locales no lo validan en producción.
-
-## Apariencia
-
-La interfaz incluye **Tierra cálida** como modo claro y **Cacao y terracota** como modo oscuro. Abre los tres puntos junto al perfil para cambiar la apariencia o acceder a la configuración de la finca; la elección se conserva en este navegador y no modifica los datos de la finca. Ambos temas se aplican a formularios, fichas, gráficas, tablas y mapa. Se mantienen los datos y las funciones del prototipo; las imágenes conceptuales no se utilizan como un mapa ficticio.
-
-Los mapas permiten alternar **Mapa / Satélite**, con la preferencia guardada en el navegador. La vista satelital utiliza [Esri World Imagery](https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer); necesita internet y su detalle y antigüedad dependen de la zona. Conserva marcadores y cerca configurada, pero no muestra límites catastrales ni imágenes en vivo. Al cambiar de fondo mantiene visible el anterior hasta que cargue el nuevo; si falla el satélite durante el zoom, vuelve al mapa normal y muestra un aviso con opción de reintento.
-
-El buscador de lugares consulta [Photon](https://github.com/komoot/photon) únicamente al pulsar **Buscar** o Enter. Selecciona un resultado para centrar el mapa; buscar no cambia la cerca ni guarda coordenadas en la finca. Incluye provincia y país para precisar lugares con nombres similares. Requiere internet, reutiliza búsquedas en memoria y muestra errores o ausencia de resultados. El servidor público de Photon permite uso moderado sin garantía de disponibilidad; para mayor tráfico, configura un servidor propio compatible mediante `VITE_GEOCODER_URL`.
-
-En **Mapa → Definir perímetro de la finca**, puedes ajustar los vértices actuales o empezar de cero. Haz clic alrededor del terreno para añadir entre 3 y 100 puntos y arrastra los marcadores numerados para corregir su posición. Puedes consultar las coordenadas, eliminar puntos y guardar el perímetro; cancelar conserva la cerca anterior. Se valida que el polígono encierre un área y no tenga lados cruzados. El guardado utiliza los datos locales en demostración y `farm_settings` en modo Supabase.
-
-Las secciones y tarjetas aparecen con transiciones breves (160–220 ms), también al entrar en pantalla al desplazarse. Se respeta la preferencia del dispositivo de reducir movimiento y el contenido permanece accesible sin animaciones.
-
-La revisión del 18 de septiembre simplifica el resumen, convierte los cuatro indicadores en accesos directos y utiliza botones rectangulares con esquinas suaves. Consulta la [lista de cambios y criterios de diseño](docs/REVISION_INTERFAZ.md). Para verificar navegación, foco de formularios y distribución en cinco tamaños de pantalla, ejecuta `node tests/usability.mjs` con el servidor local iniciado.
-
-## Funciones incluidas
-
-- Registro, búsqueda y edición del ganado: arete único, raza, propósito, sexo, nacimiento y estado activo/vendido/baja.
-- Historial individual de pesos, vacunas, tratamientos, revisiones, celo observado, servicio, preñez confirmada y parto. Fecha opcional para el próximo control.
-- Mapa OpenStreetMap con posiciones GPS y cerca virtual poligonal configurable.
-- Temperatura del collar, índice de actividad, batería, hora del reporte y gráficas del historial.
-- Alertas por salida de la cerca, cambio de temperatura, actividad elevada, batería baja y ausencia de reportes después de haber recibido datos.
-- Reconocimiento de alertas por lectura. Una nueva lectura puede generar una señal nueva.
-- Asociación y activación/desactivación de collares. Un collar por animal; el vínculo se mantiene fijo para conservar la trazabilidad.
-- Exportación CSV de las lecturas cargadas.
-- Acceso con correo/contraseña al usar Supabase; aislamiento de datos por cuenta.
-
-Los datos del collar **no equivalen a diagnósticos**. La temperatura es superficial o del entorno; la actividad no confirma celo; el servicio no confirma preñez. Los criterios iniciales son valores de demostración que requieren calibración en campo. No se implementan las estimaciones reproductivas por raza del archivo original porque sus reglas no estaban validadas para este proyecto.
-
-## Preparar Supabase
-
-Usa un **proyecto nuevo dedicado a SmartHerd**. No ejecutes esta migración en EcoPoints.
-
-1. Crea el proyecto en Supabase.
-2. Ejecuta `supabase/migrations/202609160001_initial.sql` una vez desde SQL Editor, o aplica la migración con Supabase CLI. Crea tablas, restricciones y políticas RLS.
-3. Ejecuta `supabase/migrations/202609230001_realtime.sql` en el mismo proyecto para publicar las tablas del panel en Supabase Realtime. La migración puede repetirse sin duplicar tablas en la publicación.
-4. En Authentication → Users, crea un usuario de finca con correo y contraseña. El prototipo no incluye alta pública ni recuperación de contraseña. Una cuenta representa una finca; no hay equipos/roles compartidos en esta versión.
-5. Copia `.env.example` a `.env` y completa `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` con la URL y la clave pública/anon del proyecto. **Nunca pongas la clave service_role en variables VITE**.
-6. Reinicia `npm run dev`, inicia sesión y registra animales, collares y la cerca de la finca. En nube no se cargan animales ni mediciones ficticias automáticamente. La cerca inicial está vacía: configúrala antes de usar alertas de salida.
-7. Para publicar el receptor de telemetría con Supabase CLI:
+En un proyecto nuevo aplica, en orden, las migraciones `202609160001_initial.sql`, `202609230001_realtime.sql`, `202609250001_tracking_mode.sql` y `202609250002_module_registry.sql` de `supabase/migrations/`. Para la función:
 
 ```sh
-supabase login
-supabase link --project-ref TU_REFERENCIA
 supabase functions deploy ingest-telemetry --no-verify-jwt
 ```
 
-La verificación JWT del gateway se desactiva **solo para esta función**, que realiza su propia autenticación obligatoria mediante una clave de estación. El acceso sin credencial es rechazado. La función utiliza `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` del entorno de Supabase; estas variables no van al navegador ni al ESP32.
+Solo `ingest-telemetry` desactiva la validación JWT del gateway porque comprueba obligatoriamente una clave propia de estación de 64 caracteres contra un hash SHA-256. La función utiliza `SUPABASE_SERVICE_ROLE_KEY` **solo en el servidor**. Crea usuarios desde Supabase Auth y registra la estación con `scripts/create-gateway-key.mjs`. Las tablas de finca tienen políticas RLS por propietario; la telemetría se escribe solo desde la función.
 
-### Autorizar una estación
-
-Copia el UUID del usuario de la finca desde Authentication. Genera una clave aleatoria y guarda el archivo **fuera del proyecto**:
+Para publicar la web, compila con las dos variables públicas y el prefijo de ruta `/SmartHerd/` para GitHub Pages:
 
 ```sh
-node scripts/create-gateway-key.mjs UUID_DEL_USUARIO /ruta/privada/estacion.env
+npm run build -- --base=/SmartHerd/
 ```
 
-El script crea el archivo con permisos privados y muestra un SQL que contiene solamente el **hash SHA-256**. Ejecuta ese SQL para registrar la estación. Carga la clave secreta del archivo en la estación base. Para revocarla, cambia `enabled` a `false` en `gateway_credentials`. Nunca publiques el archivo ni subas la clave a un repositorio.
-
-Una estación autorizada puede enviar reportes de los collares habilitados de su finca, pero no de otras fincas. La clave de estación no permite leer ni gestionar la finca.
-
-### Probar el receptor publicado
-
-Exporta `SUPABASE_URL`, `GATEWAY_TOKEN` y `DEVICE_ID` en tu terminal local (el collar debe estar vinculado a un animal activo) y ejecuta:
-
-```sh
-npm run simulate
-```
-
-Ese simulador sí envía un reporte al proyecto configurado. Las coordenadas son de ejemplo: ajústalas antes de utilizarlo con una finca real. El JSON y las reglas para ESP32 están en [docs/ESP32.md](docs/ESP32.md).
-
-## Publicar la página
-
-Supabase aloja la base de datos, autenticación y función receptora de esta solución. La interfaz se construye como sitio estático y se sirve desde un alojamiento web (por ejemplo, el mismo tipo de despliegue usado para la interfaz de EcoPoints).
-
-```sh
-npm run build
-npm run preview
-```
-
-Configura las dos variables públicas VITE en el alojamiento **antes** de construir. Comando de compilación: `npm ci && npm run build`; carpeta a publicar: `dist`. No necesita servidor Node permanente para la interfaz ni rutas especiales. Configura Site URL y dominios permitidos en Supabase Auth para el dominio final. Usa HTTPS. La interfaz pública actual se sirve por GitHub Pages; Supabase aloja la base, Auth y `ingest-telemetry`, no los archivos del frontend.
-
-## Prueba local con dos ESP32
-
-La carpeta hermana [smartherd-hardware](../smartherd-hardware/README.md) contiene el firmware GPS/transmisor y receptor LoRa, un cargador que verifica la serie USB de cada placa y un puente local para esta Mac. El emisor con GPS es el equipo conectado **directamente**; el receptor sin GPS está conectado al **hub**. En **Collares**, **Resumen** y **Mapa** el estado del collar físico `SH-COLLAR-001` se actualiza cada tres segundos con la pestaña visible y se consulta al volver a ella: distingue **Sin señal GPS** (LoRa recibió `NO_FIX`), **Sin señal LoRa** (el emisor transmitió pero no llegó la trama en 45 s), **Desconectado** (falta el emisor por USB) y **Desactivado** (configuración de la web), además de fallos del receptor o del monitoreo. Los otros tres collares son solo ejemplos sin ESP32 asociado. El emisor correcto entregó más de 13 000 bytes GPS y 44 tramas RMC válidas, y el receptor recibió `NO_FIX` por LoRa; la web lo mostró correctamente. Aún falta comprobar una posición real bajo cielo abierto. En la web pública de Chrome, permite el acceso local solicitado para leer este puente de la Mac; no lleva los datos del ESP32 a Supabase y no estará disponible en otros dispositivos automáticamente.
-
-## Arquitectura y límites
-
-`Collar ESP32 + sensores → LoRa punto a punto → estación base ESP32 + internet → Edge Function autenticada → PostgreSQL → React`
-
-- En modo Supabase, el panel se actualiza al recibir cambios de la finca por Realtime cuando se aplica la segunda migración. Conserva una consulta cada 30 segundos y otra al volver a la pestaña para recuperarse de cortes o eventos perdidos. Las migraciones y la función ya están instaladas en el proyecto dedicado; queda verificar una sesión real y un reporte autenticado de estación.
-- Las alertas se calculan con el panel abierto; no hay notificaciones push, SMS, correo ni análisis programado en servidor.
-- Los umbrales de actividad/temperatura usan al menos 5 reportes anteriores dentro de 7 días. No es un modelo fisiológico validado ni ajustado a horas del día.
-- Se cargan las últimas 5000 lecturas de la finca. Gráficas: hasta 24 por animal. Los datos anteriores permanecen en Supabase, pero esta interfaz y su CSV no los descargan. Para grandes hatos, añadir paginación y agregación por animal antes del uso prolongado.
-- La hora de medición proviene de la estación; se admite una demora de hasta 30 días para reenviar datos almacenados y hasta 5 minutos de desfase futuro. La recepción también queda registrada en el servidor.
-- Las lecturas antiguas generan una señal de falta de comunicación, no señales sanitarias actuales. Un collar que nunca reportó muestra “Sin lecturas”.
-- El mapa, las teselas y las fuentes web necesitan internet; la demo conserva registros localmente, pero no ofrece un mapa offline.
-- No hay borrado físico desde la interfaz: usa vendido/baja para conservar el historial.
-- Las fechas de próximo control se registran y consultan; no generan recordatorios automáticos.
-- El firmware local incluye únicamente GPS y LoRa; faltan sensores de temperatura/actividad, cola de retransmisión y autenticación de tramas de radio. Sí hay una prueba física de recepción LoRa `NO_FIX`, pero no una prueba de posición GPS válida ni un despliegue remoto de telemetría. Tampoco incorpora limitación de solicitudes por estación; añadirla y probar carga antes de un despliegue de producción expuesto.
+Supabase aloja Auth, datos y función; GitHub Pages aloja la interfaz. Las teselas del mapa y la búsqueda requieren internet. Se cargan las 5000 lecturas más recientes, de modo que para despliegues grandes habrá que añadir paginación. Las alertas aparecen con la aplicación abierta y al reabrirla; no se envían por SMS/correo.
 
 ## Verificación
 
 ```sh
 npm test
 npm run build
-node tests/browser.mjs
-node tests/map-zoom.mjs
-node tests/map-resilience.mjs
-node tests/map-live-stability.mjs
-node tests/map-search.mjs
-node tests/collar-live.mjs
 ```
 
-Las pruebas de base de datos ejecutan la migración en PostgreSQL embebido (PGlite), con roles que simulan Supabase Auth. Verifican aislamiento, referencias entre fincas, bloqueo de escritura directa y duplicados. No sustituyen la prueba final en un proyecto Supabase real. La prueba de navegador usa Chrome instalado en macOS; cambia `executablePath` o instala Chromium con Playwright en otros equipos. Las capturas se guardan en `test-results/` (no forman parte de la distribución).
-
-Referencias técnicas: [React con Supabase Auth](https://supabase.com/docs/guides/auth/quickstarts/react), [Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security), [autenticación de Edge Functions](https://supabase.com/docs/guides/functions/auth), [configuración de funciones](https://supabase.com/docs/guides/functions/function-configuration).
+La batería de pruebas incluye aislamiento de fincas y RLS en PostgreSQL embebido, validación de paquetes, API de estación, modos de rastreo, registro de módulos y ventanas reproductivas. Los scripts antiguos de navegador basados en el acceso de demostración ya no son aplicables y deberán adaptarse a una cuenta autenticada. La prueba del flujo de una cuenta real y las pruebas físicas de LoRa/GPS requieren una sesión y los módulos conectados.

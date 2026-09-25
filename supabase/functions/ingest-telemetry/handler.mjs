@@ -8,10 +8,45 @@ const reply = (status, body) =>
     },
   });
 export const createHandler = (db) => async (req) => {
-  if (req.method !== "POST") return reply(405, { error: "Solo POST" });
+  if (req.method !== "POST" && req.method !== "GET")
+    return reply(405, { error: "Solo GET o POST" });
   const auth = req.headers.get("authorization") || "";
   if (!/^Bearer [a-f0-9]{64}$/.test(auth))
     return reply(401, { error: "Credencial de estación requerida" });
+  const hash = Array.from(
+    new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(auth.slice(7)),
+      ),
+    ),
+  )
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  const { data: gateway, error: credentialError } = await db
+    .from("gateway_credentials")
+    .select("owner_id")
+    .eq("token_hash", hash)
+    .eq("enabled", true)
+    .maybeSingle();
+  if (credentialError)
+    return reply(503, { error: "Servicio temporalmente no disponible" });
+  if (!gateway) return reply(401, { error: "Credencial inválida o revocada" });
+  if (req.method === "GET") {
+    const { data: tracking, error: trackingError } = await db
+      .from("tracking_mode")
+      .select("interval_seconds,live_until")
+      .eq("owner_id", gateway.owner_id)
+      .maybeSingle();
+    if (trackingError) return reply(503, { error: "No se pudo leer el modo de rastreo" });
+    const live = tracking?.interval_seconds === 5 &&
+      Number.isFinite(Date.parse(tracking.live_until)) &&
+      Date.parse(tracking.live_until) > Date.now();
+    return reply(200, {
+      interval_seconds: live ? 5 : 300,
+      live_until: live ? tracking.live_until : null,
+    });
+  }
   if (!req.headers.get("content-type")?.includes("application/json"))
     return reply(415, { error: "Usa application/json" });
   // Bound body size even for requests without Content-Length.
@@ -43,25 +78,6 @@ export const createHandler = (db) => async (req) => {
       error: e instanceof Error ? e.message : "JSON inválido",
     });
   }
-  const hash = Array.from(
-    new Uint8Array(
-      await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(auth.slice(7)),
-      ),
-    ),
-  )
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  const { data: gateway, error: credentialError } = await db
-    .from("gateway_credentials")
-    .select("owner_id")
-    .eq("token_hash", hash)
-    .eq("enabled", true)
-    .maybeSingle();
-  if (credentialError)
-    return reply(503, { error: "Servicio temporalmente no disponible" });
-  if (!gateway) return reply(401, { error: "Credencial inválida o revocada" });
   const { data: device, error: deviceError } = await db
     .from("devices")
     .select("id,animal_id,owner_id,animals!inner(status)")

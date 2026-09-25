@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { makeSeed, defaults } from "./domain.mjs";
+import { defaults } from "./domain.mjs";
 const url = import.meta.env.VITE_SUPABASE_URL,
   key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export let supabase = null;
@@ -9,17 +9,6 @@ try {
 } catch {
   configurationError = "Configuración de Supabase inválida";
 }
-const storageKey = "smartherd-demo-v1";
-export function loadDemo() {
-  const raw = localStorage.getItem(storageKey);
-  if (raw) return JSON.parse(raw);
-  const seed = makeSeed();
-  localStorage.setItem(storageKey, JSON.stringify(seed));
-  return seed;
-}
-export function saveDemo(data) {
-  localStorage.setItem(storageKey, JSON.stringify(data));
-}
 export async function loadCloud() {
   const names = [
     "animals",
@@ -28,6 +17,8 @@ export async function loadCloud() {
     "events",
     "farm_settings",
     "alert_acknowledgements",
+    "tracking_mode",
+    "module_registry",
   ];
   const results = await Promise.all(
     names.map((n) => {
@@ -45,6 +36,8 @@ export async function loadCloud() {
     events: results[3].data,
     settings: results[4].data[0] || { ...defaults, polygon: [] },
     acknowledged: results[5].data.map((x) => x.alert_id),
+    tracking: results[6].data[0] || { interval_seconds: 300, live_until: null },
+    modules: results[7].data,
   };
 }
 export async function writeCloud(table, row) {

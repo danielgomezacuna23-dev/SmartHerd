@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PHYSICAL_COLLAR_ID } from "./collarStatus.mjs";
 
 export function validReceiverStatus(value) {
@@ -14,8 +14,33 @@ export function validReceiverStatus(value) {
   return true;
 }
 
-export default function useReceiverStatus(enabled) {
+export async function readReceiverStatus(timeoutMs = 10_000, externalSignal) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  externalSignal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(abort, timeoutMs);
+  try {
+    const response = await fetch("http://127.0.0.1:8765/status", {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error("Puente local no disponible");
+    const value = await response.json();
+    if (!validReceiverStatus(value)) throw new Error("Identidad o datos del receptor inválidos");
+    return value;
+  } finally {
+    clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", abort);
+  }
+}
+
+export default function useReceiverStatus(enabled, intervalMs = 300_000) {
   const [receiver, setReceiver] = useState(null);
+  const refresh = useCallback(async () => {
+    const value = await readReceiverStatus(60_000);
+    setReceiver(value);
+    return value;
+  }, []);
   useEffect(() => {
     if (!enabled) {
       setReceiver(null);
@@ -28,7 +53,7 @@ export default function useReceiverStatus(enabled) {
     let firstRequest = true;
     const schedule = () => {
       clearTimeout(timer);
-      timer = setTimeout(poll, document.hidden ? 15000 : 3000);
+      timer = setTimeout(poll, document.hidden ? Math.max(15_000, intervalMs) : intervalMs);
     };
     const poll = async () => {
       if (!active || inFlight) return;
@@ -36,23 +61,13 @@ export default function useReceiverStatus(enabled) {
       controller = new AbortController();
       // A public HTTPS page may wait for Chrome's local-network permission
       // before it can contact the receiver on this computer.
-      const timeout = setTimeout(() => controller.abort(), firstRequest ? 60_000 : 5_000);
-      firstRequest = false;
       try {
-        const response = await fetch("http://127.0.0.1:8765/status", {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error("Puente local no disponible");
-        const value = await response.json();
-        if (active) {
-          const next = validReceiverStatus(value) ? value : null;
-          setReceiver((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
-        }
+        const value = await readReceiverStatus(firstRequest ? 60_000 : 5_000, controller.signal);
+        if (active) setReceiver((previous) => JSON.stringify(previous) === JSON.stringify(value) ? previous : value);
       } catch {
         if (active) setReceiver(null);
       } finally {
-        clearTimeout(timeout);
+        firstRequest = false;
         controller = null;
         inFlight = false;
         if (active) schedule();
@@ -75,6 +90,6 @@ export default function useReceiverStatus(enabled) {
       window.removeEventListener("focus", resume);
       window.removeEventListener("online", resume);
     };
-  }, [enabled]);
-  return enabled ? receiver : null;
+  }, [enabled, intervalMs]);
+  return { receiver: enabled ? receiver : null, refresh };
 }

@@ -57,7 +57,6 @@ export function diagnose(error) {
       title: "El acceso a cuentas aún no está configurado",
       cause: "Falta una configuración válida de Supabase.",
       steps: [
-        "Puedes explorar la demostración mientras se configura el acceso.",
         "El administrador debe revisar VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY, y reiniciar o volver a publicar la aplicación.",
       ],
     };
@@ -148,9 +147,6 @@ export class AppErrorBoundary extends React.Component {
           error={this.state.error}
           onRetry={() => window.location.reload()}
           onBack={() => {
-            try {
-              sessionStorage.removeItem("smartherd-demo-access");
-            } catch {}
             window.location.reload();
           }}
         />

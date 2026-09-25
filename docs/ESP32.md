@@ -2,6 +2,8 @@
 
 La estación recibe las tramas LoRa, identifica el collar y hace un POST HTTPS. El collar no necesita conectarse directamente a internet. Este documento define el contrato de datos; no presupone pines, cableado, protocolo LoRa ni sensores físicamente validados.
 
+Antes de solicitar una posición, la estación puede consultar `GET` a la misma URL con la misma cabecera `Authorization`. Recibe `{"interval_seconds":300,"live_until":null}` en modo habitual o `interval_seconds:5` mientras el usuario haya activado **Rastrear en tiempo real**. El modo rápido caduca a los 15 minutos. La estación debe consultar esta preferencia periódicamente y ordenar al emisor el nuevo intervalo por LoRa; si falla la consulta, debe volver a 300 segundos. El firmware actual no implementa todavía esa orden y sigue transmitiendo cada 15 segundos. No se ha probado esta integración física en la sesión actual.
+
 ## Solicitud
 
 `POST https://TU_PROYECTO.supabase.co/functions/v1/ingest-telemetry`
@@ -53,4 +55,4 @@ La estación utiliza únicamente su clave de acceso. Nunca incorpora una clave s
 
 El formato LoRa puede ser compacto/binario; la estación lo convierte a este JSON. El hardware debe validar CRC, ID y formato de la trama. La clave HTTPS protege el ingreso a Supabase, no autentica por sí sola las tramas de radio: antes de uso real, añade autenticación de mensajes y protección contra reproducción en el enlace LoRa. Comprueba experimentalmente posicionamiento, pérdida de paquetes, consumo, montaje térmico y significado del índice de actividad.
 
-La integración física y el ensayo de extremo a extremo quedan pendientes hasta disponer del firmware y del proyecto Supabase configurado.
+El proyecto Supabase está configurado, pero la aplicación de los intervalos por el firmware y una ubicación GPS real bajo cielo abierto siguen pendientes de prueba con los módulos conectados.
