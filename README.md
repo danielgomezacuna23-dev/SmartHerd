@@ -20,7 +20,7 @@ La página muestra telemetría real guardada en Supabase cuando una estación au
 
 La preferencia de 5 minutos/5 segundos se guarda en `tracking_mode` y la estación puede consultarla mediante `GET /functions/v1/ingest-telemetry` con su clave de estación. Con el puente local activo, el botón de la web también envía `POST /mode`; este espera la confirmación del emisor por LoRa y muestra si el intervalo físico coincide con el solicitado. El firmware actualizado transmite cada cinco minutos normalmente y cada cinco segundos durante hasta 15 minutos en modo rápido. El cambio de intervalo y la recepción de tramas `NO_FIX` se probaron con ambos ESP32 conectados el 25/9/2026. El puente local todavía no envía posiciones a Supabase; para rastreo remoto o con la Mac apagada hace falta una estación conectada a internet. No se ha probado una posición GPS válida bajo cielo abierto.
 
-El emisor con GPS es la placa con MAC `68:EE:8F:4F:32:20` e ID interno `20324F8FEE68`; el receptor sin GPS es la placa con MAC `68:EE:8F:4F:50:20` e ID `20504F8FEE68`. El puente vuelve a verificar esos identificadores en cada conexión. Consulta la [guía de hardware](../smartherd-hardware/README.md) y el [contrato de telemetría](docs/ESP32.md).
+El emisor con GPS es la placa con MAC `68:EE:8F:4F:32:20` e ID interno `20324F8FEE68`; el receptor sin GPS es la placa con MAC `68:EE:8F:4F:50:20` e ID `20504F8FEE68`. El puente vuelve a verificar esos identificadores en cada conexión. Consulta la [guía de hardware](hardware/README.md) y el [contrato de telemetría](docs/ESP32.md).
 
 ## Instalación y Supabase
 
