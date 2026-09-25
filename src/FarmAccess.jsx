@@ -3,8 +3,8 @@ import { ArrowRight, Plus, LogOut } from "lucide-react";
 import FarmLocationPicker from "./FarmLocationPicker";
 
 const parseBreeds = (value) => [...new Set(value.split(",").map((x) => x.trim()).filter(Boolean))];
-export default function FarmAccess({ farms, creating, onCreate, onOpen, onStartCreate, onCancel, onExit, busy, error, brand, appearance }) {
-  const [location, setLocation] = useState(null);
+export default function FarmAccess({ farms, creating, draftFarm, onCreate, onOpen, onStartCreate, onCancel, onExit, busy, error, brand, appearance }) {
+  const [location, setLocation] = useState(draftFarm?.latitude == null ? null : [draftFarm.latitude, draftFarm.longitude]);
   return <div className="farm-access">
     <header className="farm-access-header"><div className="farm-access-brand">{brand}<strong>SmartHerd</strong></div>{appearance}<button type="button" className="text-link" onClick={onExit}><LogOut size={16}/> Cerrar sesión</button></header>
     <main className="farm-access-main">
@@ -25,9 +25,9 @@ export default function FarmAccess({ farms, creating, onCreate, onOpen, onStartC
           });
         }}>
           <div className="farm-create-fields">
-            <label>Nombre de la finca<input name="name" required maxLength={100} placeholder="Ej. Finca La Esperanza" /></label>
-            <label>Tipo de producción<select name="production_type" defaultValue="leche"><option value="leche">Leche</option><option value="engorde">Engorde</option><option value="doble">Doble propósito</option></select></label>
-            <label className="farm-breeds">Razas presentes<input name="breeds" required maxLength={500} placeholder="Ej. Holstein, Jersey, Brahman" /><small>Separa las razas con comas. Podrás cambiarlas después.</small></label>
+            <label>Nombre de la finca<input name="name" required maxLength={100} defaultValue={draftFarm?.name === "Mi finca" ? "" : draftFarm?.name || ""} placeholder="Ej. Finca La Esperanza" /></label>
+            <label>Tipo de producción<select name="production_type" defaultValue={draftFarm?.production_type || "leche"}><option value="leche">Leche</option><option value="engorde">Engorde</option><option value="doble">Doble propósito</option></select></label>
+            <label className="farm-breeds">Razas presentes<input name="breeds" required maxLength={500} defaultValue={draftFarm?.breeds?.join(", ") || ""} placeholder="Ej. Holstein, Jersey, Brahman" /><small>Separa las razas con comas. Podrás cambiarlas después.</small></label>
           </div>
           <h2>Ubicación en el mapa</h2>
           <FarmLocationPicker value={location} onChange={setLocation} />

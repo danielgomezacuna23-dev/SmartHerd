@@ -426,7 +426,7 @@ export default function App() {
     [authReady, setAuthReady] = useState(!supabase),
     [farms, setFarms] = useState(null),
     [farmId, setFarmId] = useState(null),
-    [creatingFarm, setCreatingFarm] = useState(false),
+    [farmMode, setFarmMode] = useState(null),
     [data, setData] = useState(null),
     [page, setPage] = useState("overview"),
     [selected, setSelected] = useState(null),
@@ -470,7 +470,7 @@ export default function App() {
       setData(null);
       setFarmId(null);
       setFarms(null);
-      setCreatingFarm(false);
+      setFarmMode(null);
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -478,7 +478,11 @@ export default function App() {
     try {
       const next = await loadFarms();
       setFarms(next);
-      setCreatingFarm((current) => current || next.length === 0);
+      setFarmMode((current) => current || (
+        next.length === 0 ? "new" :
+        next.length === 1 && (next[0].latitude == null || !next[0].breeds?.length)
+          ? `complete:${next[0].id}` : null
+      ));
       setError("");
     } catch (e) {
       setError("No se pudieron cargar las fincas: " + e.message);
@@ -699,25 +703,34 @@ export default function App() {
     setSelected(null);
     setPage("overview");
     setFarmId(id);
-    setCreatingFarm(false);
+    setFarmMode(null);
     setError("");
   };
   if (!farmId) {
     if (!farms && !error) return <div className="loading" role="status">Cargando tus fincas…</div>;
+    const draftFarm = farmMode?.startsWith("complete:")
+      ? farms?.find((farm) => farm.id === farmMode.slice(9)) : null;
     return <FarmAccess
+      key={farmMode || "list"}
       farms={farms || []}
-      creating={creatingFarm || !farms?.length}
+      creating={!!farmMode || !farms?.length}
+      draftFarm={draftFarm}
       brand={<BrandMark />}
       appearance={<ThemeSwitch theme={theme} onChange={setTheme} />}
       busy={busy} error={error}
-      onOpen={openFarm}
-      onStartCreate={() => { setError(""); setCreatingFarm(true); }}
-      onCancel={() => { setError(""); setCreatingFarm(false); }}
+      onOpen={(id) => {
+        const farm = farms.find((item) => item.id === id);
+        if (farm?.latitude == null || !farm?.breeds?.length) setFarmMode(`complete:${id}`);
+        else openFarm(id);
+      }}
+      onStartCreate={() => { setError(""); setFarmMode("new"); }}
+      onCancel={() => { setError(""); setFarmMode(null); }}
       onExit={() => act(leaveAccess)}
       onCreate={(profile) => act(async () => {
         if (profile.latitude == null) throw new Error("Selecciona la ubicación de la finca en el mapa.");
         if (!profile.breeds.length) throw new Error("Indica al menos una raza presente.");
-        const row = { ...defaults, ...profile, id: uid(), owner_id: session.user.id };
+        const row = { ...defaults, ...(draftFarm || {}), ...profile,
+          id: draftFarm?.id || uid(), owner_id: session.user.id };
         validateSettings(row);
         await writeCloud("farm_settings", row);
         await refreshFarms();
@@ -879,14 +892,14 @@ export default function App() {
                 refreshGeneration.current += 1;
                 setData(null);
                 setFarmId(null);
-                setCreatingFarm(false);
+                setFarmMode(null);
                 void refreshFarms();
               }}
               onCreateFarm={() => {
                 refreshGeneration.current += 1;
                 setData(null);
                 setFarmId(null);
-                setCreatingFarm(true);
+                setFarmMode("new");
                 void refreshFarms();
               }}
             />
