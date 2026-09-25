@@ -61,6 +61,19 @@ test("migración, aislamiento de fincas, escritura de telemetría y deduplicaci�
     await assert.rejects(() => db.exec(`update telemetry set activity=100`));
     await db.exec("reset role;set role anon;");
     await assert.rejects(() => db.query("select * from animals"));
+    await db.exec("reset role;");
+    await db.exec(readFileSync(new URL("../supabase/migrations/202609250003_multiple_farms.sql", import.meta.url), "utf8"));
+    const migrated = (await db.query(`select farm_id from animals where id='${a}'`)).rows[0].farm_id;
+    assert.equal((await db.query(`select farm_id from telemetry where animal_id='${a}'`)).rows[0].farm_id, migrated);
+    assert.equal((await db.query(`select farm_id from tracking_mode where owner_id='${alice}'`)).rows[0].farm_id, migrated);
+    const secondFarm = "00000000-0000-4000-8000-000000000005";
+    await db.exec(`insert into farm_settings(id,owner_id,name,production_type,breeds,latitude,longitude) values ('${secondFarm}','${alice}','Segunda finca','engorde',array['Brahman'],10.0,-84.1)`);
+    await db.exec(`insert into animals(owner_id,farm_id,name,ear_tag,breed,sex,purpose,birth_date) values ('${alice}','${secondFarm}','Luna','A-1','Brahman','hembra','engorde','2022-01-01')`);
+    assert.equal((await db.query(`select * from animals where farm_id='${secondFarm}'`)).rows.length, 1);
+    await assert.rejects(() => db.exec(`insert into devices(id,owner_id,farm_id,animal_id) values ('SH-CROSS-001','${alice}','${secondFarm}','${a}')`));
+    await assert.rejects(() => db.exec(`insert into events(owner_id,farm_id,animal_id,type,date) values ('${alice}','${secondFarm}','${a}','revision',current_date)`));
+    await db.exec(`insert into tracking_mode(owner_id,farm_id,interval_seconds) values ('${alice}','${secondFarm}',300)`);
+    assert.equal((await db.query(`select * from tracking_mode where owner_id='${alice}'`)).rows.length, 2);
   } finally {
     await db.close();
   }

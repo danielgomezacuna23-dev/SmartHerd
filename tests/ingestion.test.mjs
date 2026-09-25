@@ -24,24 +24,26 @@ function mockDatabase() {
           if (table === "gateway_credentials")
             return {
               data:
-                filters.token_hash === hash ? { owner_id: "owner-1" } : null,
+                filters.token_hash === hash ? { owner_id: "owner-1", farm_id: "farm-1" } : null,
             };
           if (table === "devices")
             return {
               data:
                 filters.id === "SH-COLLAR-001" &&
                 filters.owner_id === "owner-1" &&
+                filters.farm_id === "farm-1" &&
                 filters.enabled &&
                 filters["animals.status"] === "activo"
                   ? {
                       id: "SH-COLLAR-001",
                       owner_id: "owner-1",
+                      farm_id: "farm-1",
                       animal_id: "animal-1",
                     }
                   : null,
             };
           if (table === "tracking_mode")
-            return { data: filters.owner_id === "owner-1" ? tracking : null };
+            return { data: filters.owner_id === "owner-1" && filters.farm_id === "farm-1" ? tracking : null };
           throw Error("Tabla inesperada");
         },
         async insert(p) {
@@ -77,6 +79,7 @@ test("HTTP: autentica estación, valida vínculo, ignora propietario del cliente
     handle = createHandler(db);
   assert.equal((await handle(request())).status, 201);
   assert.equal(db.stored[0].owner_id, "owner-1");
+  assert.equal(db.stored[0].farm_id, "farm-1");
   assert.equal(db.stored[0].animal_id, "animal-1");
   const duplicate = await handle(request());
   assert.equal(duplicate.status, 200);

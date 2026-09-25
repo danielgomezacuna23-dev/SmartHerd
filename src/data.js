@@ -1,5 +1,4 @@
 import { createClient } from "@supabase/supabase-js";
-import { defaults } from "./domain.mjs";
 const url = import.meta.env.VITE_SUPABASE_URL,
   key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export let supabase = null;
@@ -9,7 +8,12 @@ try {
 } catch {
   configurationError = "Configuración de Supabase inválida";
 }
-export async function loadCloud() {
+export async function loadFarms() {
+  const { data, error } = await supabase.from("farm_settings").select("*").order("name");
+  if (error) throw error;
+  return data;
+}
+export async function loadCloud(farmId) {
   const names = [
     "animals",
     "devices",
@@ -22,7 +26,7 @@ export async function loadCloud() {
   ];
   const results = await Promise.all(
     names.map((n) => {
-      let q = supabase.from(n).select("*");
+      let q = supabase.from(n).select("*").eq(n === "farm_settings" ? "id" : "farm_id", farmId);
       if (n === "telemetry")
         q = q.order("recorded_at", { ascending: false }).limit(5000);
       return q;
@@ -34,14 +38,15 @@ export async function loadCloud() {
     devices: results[1].data,
     readings: results[2].data,
     events: results[3].data,
-    settings: results[4].data[0] || { ...defaults, polygon: [] },
+    settings: results[4].data[0] || null,
     acknowledged: results[5].data.map((x) => x.alert_id),
     tracking: results[6].data[0] || { interval_seconds: 300, live_until: null },
     modules: results[7].data,
   };
 }
-export async function loadTelemetry() {
+export async function loadTelemetry(farmId) {
   const { data, error } = await supabase.from("telemetry").select("*")
+    .eq("farm_id", farmId)
     .order("recorded_at", { ascending: false }).limit(5000);
   if (error) throw error;
   return data;

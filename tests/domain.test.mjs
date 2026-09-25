@@ -31,9 +31,10 @@ test("validación idéntica en navegador y función", () =>
     ),
   ));
 test("geocerca: dentro, fuera y en borde", () => {
-  assert.equal(insidePolygon(10.001, -84.115, defaults.polygon), true);
-  assert.equal(insidePolygon(10.001, -84.1, defaults.polygon), false);
-  assert.equal(insidePolygon(10.005, -84.115, defaults.polygon), true);
+  const polygon = [[10.005, -84.12], [10.005, -84.11], [9.997, -84.11], [9.997, -84.12]];
+  assert.equal(insidePolygon(10.001, -84.115, polygon), true);
+  assert.equal(insidePolygon(10.001, -84.1, polygon), false);
+  assert.equal(insidePolygon(10.005, -84.115, polygon), true);
 });
 test("acepta paquete y elimina propietario inyectado", () => {
   assert.equal(

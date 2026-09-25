@@ -1,4 +1,35 @@
 /* Layout and interaction refinement. Colors come exclusively from the two approved themes. */
+.farm-access { min-height: 100vh; padding: 28px clamp(18px, 5vw, 72px); background: var(--paper); }
+.farm-access-header { display: flex; align-items: center; gap: 20px; justify-content: space-between; max-width: 1240px; margin: auto; }
+.farm-access-brand { display: flex; align-items: center; gap: 10px; font: 700 24px "Lora", Georgia, serif; color: var(--ink); margin-right: auto; }
+.farm-access-brand svg { color: var(--accent); }
+.farm-access-main { max-width: 980px; margin: clamp(32px, 6vh, 80px) auto; }
+.farm-access-main h1 { margin: 8px 0 12px; }
+.farm-access-main .muted { margin-bottom: 26px; }
+.farm-create-card { max-width: 900px; margin: auto; padding: clamp(22px, 4vw, 46px); }
+.farm-create-card h2 { margin: 26px 0 16px; }
+.farm-create-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.farm-create-fields label { display: grid; gap: 7px; font-weight: 600; }
+.farm-create-fields input, .farm-create-fields select { width: 100%; min-height: 48px; }
+.farm-create-fields small { color: var(--muted); font-weight: 400; }
+.farm-breeds { grid-column: 1 / -1; }
+.farm-create-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+.farm-list-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; }
+.farm-choice { display: flex; align-items: center; gap: 18px; width: 100%; text-align: left; padding: 24px; min-height: 112px; transition: transform 160ms ease, border-color 160ms ease; }
+.farm-choice:hover { transform: translateY(-2px); border-color: var(--accent); }
+.farm-choice > span:nth-child(2) { flex: 1; display: grid; gap: 6px; min-width: 0; }
+.farm-choice strong { font: 700 19px "Lora", Georgia, serif; }
+.farm-choice small { color: var(--muted); overflow-wrap: anywhere; }
+.farm-choice-icon { flex: 0 0 50px; height: 50px; display: grid; place-items: center; border-radius: 14px; background: var(--soft); color: var(--accent); font: 700 24px "Lora", Georgia, serif; }
+.farm-choice-new { border-style: dashed; justify-content: center; color: var(--accent); }
+.farm-location-picker { position: relative; }
+.farm-location-picker .place-search { margin-bottom: 12px; }
+.farm-location-picker .map-view-options { position: relative; inset: auto; z-index: 1; margin-bottom: 12px; width: max-content; }
+.farm-location-map { width: 100%; height: clamp(280px, 42vw, 430px); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--soft); z-index: 0; }
+.farm-coordinates { color: var(--ink); font-variant-numeric: tabular-nums; }
+.farm-settings-location { grid-column: 1 / -1; }
+@media (max-width: 640px) { .farm-access-header { flex-wrap: wrap; } .farm-access-header .theme-switch { order: 3; } .farm-create-fields { grid-template-columns: 1fr; } .farm-create-actions { flex-wrap: wrap; } .farm-create-actions button { flex: 1; } }
+@media (prefers-reduced-motion: reduce) { .farm-choice { transition: none; } }
 .access-page {
   min-height: 100vh;
   padding: 32px clamp(20px, 6vw, 90px);

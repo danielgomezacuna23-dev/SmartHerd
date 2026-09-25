@@ -3,12 +3,11 @@ export const today = () =>
   new Date().toLocaleDateString("en-CA", { timeZone: "America/Costa_Rica" });
 export const defaults = {
   name: "Mi finca",
-  polygon: [
-    [10.005, -84.12],
-    [10.005, -84.11],
-    [9.997, -84.11],
-    [9.997, -84.12],
-  ],
+  polygon: [],
+  production_type: "doble",
+  breeds: [],
+  latitude: null,
+  longitude: null,
   offline_minutes: 30,
   temperature_delta: 2,
   activity_ratio: 2,
@@ -39,9 +38,17 @@ export function insidePolygon(lat, lng, polygon) {
 }
 export function validateSettings(s) {
   if (!s.name?.trim()) throw new Error("Escribe el nombre de la finca.");
+  if (!['leche', 'engorde', 'doble'].includes(s.production_type))
+    throw new Error("Selecciona el tipo de producción.");
+  if (!Array.isArray(s.breeds) || s.breeds.some((breed) => !breed?.trim() || breed.length > 80))
+    throw new Error("Revisa las razas de la finca.");
+  if ((s.latitude == null) !== (s.longitude == null) ||
+      (s.latitude != null && (!Number.isFinite(s.latitude) || Math.abs(s.latitude) > 90 ||
+        !Number.isFinite(s.longitude) || Math.abs(s.longitude) > 180)))
+    throw new Error("Selecciona una ubicación válida en el mapa.");
   if (
     !Array.isArray(s.polygon) ||
-    s.polygon.length < 3 ||
+    (s.polygon.length !== 0 && s.polygon.length < 3) ||
     s.polygon.length > 100 ||
     s.polygon.some(
       (p) =>
@@ -60,7 +67,7 @@ export function validateSettings(s) {
     const q = s.polygon[(i + 1) % s.polygon.length];
     return a + p[1] * q[0] - q[1] * p[0];
   }, 0);
-  if (Math.abs(area) < 1e-10)
+  if (s.polygon.length && Math.abs(area) < 1e-10)
     throw new Error("La cerca debe encerrar un área.");
   const turn = (a, b, c) =>
     (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);

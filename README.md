@@ -5,6 +5,7 @@ Aplicación web de gestión ganadera para la ExpoTécnica 2026. La [página púb
 ## Funciones
 
 - Registro de animales, eventos sanitarios y reproductivos, collares, lecturas y alertas. Un collar se vincula a un animal activo.
+- Tras iniciar sesión se elige una finca o se crea la primera con nombre, producción, razas y ubicación en el mapa. Cada finca mantiene separados su ganado, collares, lecturas, alertas y rastreo. En los tres puntos junto al perfil se puede cambiar de finca, crear otra y editar la actual.
 - Mapa normal o satelital con ubicación recibida, hora de lectura y perímetro poligonal editable. La búsqueda de lugares usa Photon.
 - El menú de **tres puntos junto al perfil → Rastreo y diagnóstico** contiene el modo habitual (consulta cada 5 minutos), **Rastrear en tiempo real** (consulta cada 5 segundos durante 15 minutos), pruebas de LoRa/GPS y registro de módulos.
 - En el registro de módulos, **emisor** significa ESP32 del collar con GPS y debe asociarse a un collar; **receptor** significa estación LoRa. Se guarda la MAC de 12 dígitos hexadecimales para no confundirlos. Registrar un módulo no programa el ESP32 ni demuestra que esté conectado.
@@ -31,13 +32,13 @@ npm run dev
 
 Completa `.env` con `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` del proyecto dedicado. Solo se usa una clave pública en el navegador; **nunca** coloques `service_role` ni la clave de estación en variables `VITE`.
 
-En un proyecto nuevo aplica, en orden, las migraciones `202609160001_initial.sql`, `202609230001_realtime.sql`, `202609250001_tracking_mode.sql` y `202609250002_module_registry.sql` de `supabase/migrations/`. Para la función:
+En un proyecto nuevo aplica, en orden, las migraciones `202609160001_initial.sql`, `202609230001_realtime.sql`, `202609250001_tracking_mode.sql`, `202609250002_module_registry.sql` y `202609250003_multiple_farms.sql` de `supabase/migrations/`. La última conserva datos anteriores en una finca. Para la función:
 
 ```sh
 supabase functions deploy ingest-telemetry --no-verify-jwt
 ```
 
-Solo `ingest-telemetry` desactiva la validación JWT del gateway porque comprueba obligatoriamente una clave propia de estación de 64 caracteres contra un hash SHA-256. La función utiliza `SUPABASE_SERVICE_ROLE_KEY` **solo en el servidor**. Crea usuarios desde Supabase Auth y registra la estación con `scripts/create-gateway-key.mjs`. Las tablas de finca tienen políticas RLS por propietario; la telemetría se escribe solo desde la función.
+Solo `ingest-telemetry` desactiva la validación JWT del gateway porque comprueba obligatoriamente una clave propia de estación de 64 caracteres contra un hash SHA-256. La función utiliza `SUPABASE_SERVICE_ROLE_KEY` **solo en el servidor**. Crea usuarios desde Supabase Auth y registra cada estación con `node scripts/create-gateway-key.mjs UUID_USUARIO UUID_FINCA /ruta/privada/estacion.env`; el UUID de finca es `farm_settings.id`. Cada clave de estación queda ligada a una finca. Las tablas de finca tienen políticas RLS por propietario y claves foráneas que impiden asociar un collar de otra finca; la telemetría se escribe solo desde la función.
 
 Para publicar la web, compila con las dos variables públicas y el prefijo de ruta `/SmartHerd/` para GitHub Pages:
 

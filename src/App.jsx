@@ -29,7 +29,7 @@ import {
   Sun,
   Moon,
 } from "lucide-react";
-import { supabase, loadCloud, loadTelemetry, writeCloud } from "./data";
+import { supabase, loadFarms, loadCloud, loadTelemetry, writeCloud } from "./data";
 import {
   uid,
   today,
@@ -49,6 +49,8 @@ import { effectiveTrackingInterval } from "./tracking.mjs";
 import TrackingPanel from "./TrackingPanel";
 import { potentialHeatForecast } from "./reproduction.mjs";
 import { validateModule } from "./modules.mjs";
+import FarmAccess from "./FarmAccess";
+import FarmLocationPicker from "./FarmLocationPicker";
 const nav = [
   ["overview", "Resumen", LayoutDashboard],
   ["animals", "Mi ganado", CattleIcon],
@@ -142,7 +144,7 @@ function ThemeSwitch({ theme, onChange }) {
     </div>
   );
 }
-function Preferences({ theme, onChange, onSettings, onTracking, onHelp, onExit }) {
+function Preferences({ theme, onChange, onSettings, onTracking, onHelp, onExit, onSwitchFarm, onCreateFarm }) {
   const [open, setOpen] = useState(false);
   const root = useRef(null);
   const trigger = useRef(null);
@@ -190,6 +192,12 @@ function Preferences({ theme, onChange, onSettings, onTracking, onHelp, onExit }
           <h2>Preferencias</h2>
           <p>Apariencia</p>
           <ThemeSwitch theme={theme} onChange={onChange} />
+          <button type="button" className="preferences-settings" onClick={() => { setOpen(false); onSwitchFarm(); }}>
+            <MapPin size={18} /> Cambiar finca
+          </button>
+          <button type="button" className="preferences-settings" onClick={() => { setOpen(false); onCreateFarm(); }}>
+            <Plus size={18} /> Crear nueva finca
+          </button>
           <button
             type="button"
             className="preferences-settings"
@@ -416,6 +424,9 @@ export default function App() {
   }, [theme]);
   const [session, setSession] = useState(null),
     [authReady, setAuthReady] = useState(!supabase),
+    [farms, setFarms] = useState(null),
+    [farmId, setFarmId] = useState(null),
+    [creatingFarm, setCreatingFarm] = useState(false),
     [data, setData] = useState(null),
     [page, setPage] = useState("overview"),
     [selected, setSelected] = useState(null),
@@ -457,13 +468,29 @@ export default function App() {
       refreshGeneration.current += 1;
       setSession(s);
       setData(null);
+      setFarmId(null);
+      setFarms(null);
+      setCreatingFarm(false);
     });
     return () => subscription.unsubscribe();
   }, []);
+  const refreshFarms = useCallback(async () => {
+    try {
+      const next = await loadFarms();
+      setFarms(next);
+      setCreatingFarm((current) => current || next.length === 0);
+      setError("");
+    } catch (e) {
+      setError("No se pudieron cargar las fincas: " + e.message);
+    }
+  }, []);
+  useEffect(() => { if (session?.user?.id) void refreshFarms(); }, [session?.user?.id, refreshFarms]);
   const refresh = useCallback(async () => {
+    if (!farmId) return;
     const generation = ++refreshGeneration.current;
     try {
-      const next = await loadCloud();
+      const next = await loadCloud(farmId);
+      if (!next.settings) throw new Error("Esta finca ya no está disponible. Vuelve a elegirla.");
       if (generation === refreshGeneration.current) {
         setError("");
         setData(next);
@@ -472,19 +499,20 @@ export default function App() {
       if (generation === refreshGeneration.current)
         setError("No se pudieron cargar los datos: " + e.message);
     }
-  }, []);
+  }, [farmId]);
   const refreshReadings = useCallback(async () => {
+    if (!farmId) return;
     try {
-      const readings = await loadTelemetry();
+      const readings = await loadTelemetry(farmId);
       setData((current) => current ? { ...current, readings } : current);
       setError((current) => current.startsWith("No se pudieron cargar las lecturas") ? "" : current);
     } catch (e) {
       setError("No se pudieron cargar las lecturas: " + e.message);
     }
-  }, []);
+  }, [farmId]);
   useEffect(() => {
-    if (session) refresh();
-  }, [session, refresh]);
+    if (session && farmId) refresh();
+  }, [session?.user?.id, farmId, refresh]);
   useEffect(() => {
     const id = setInterval(() => {
       setClock(Date.now());
@@ -492,23 +520,23 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
-    if (!session) return;
+    if (!session || !farmId) return;
     const id = setInterval(() => { if (!document.hidden) void refresh(); }, 300_000);
     return () => clearInterval(id);
-  }, [session, refresh]);
+  }, [session?.user?.id, farmId, refresh]);
   useEffect(() => {
-    if (!session || trackingInterval !== 5) return;
+    if (!session || !farmId || trackingInterval !== 5) return;
     const id = setInterval(() => { if (!document.hidden) void refreshReadings(); }, 5_000);
     return () => clearInterval(id);
-  }, [session, refreshReadings, trackingInterval]);
+  }, [session?.user?.id, farmId, refreshReadings, trackingInterval]);
   useEffect(() => {
-    if (!session?.user?.id || !supabase) return;
+    if (!session?.user?.id || !farmId || !supabase) return;
     let timer;
     const queueRefresh = () => {
       clearTimeout(timer);
       timer = setTimeout(() => { if (!document.hidden) void refresh(); }, 250);
     };
-    const channel = supabase.channel(`smartherd-live-${session.user.id}-${Date.now()}`);
+    const channel = supabase.channel(`smartherd-live-${session.user.id}-${farmId}-${Date.now()}`);
     for (const table of ["devices", "animals", "events", "farm_settings", "alert_acknowledgements", "tracking_mode", "module_registry"])
       channel.on("postgres_changes", {
         event: "*", schema: "public", table,
@@ -524,7 +552,7 @@ export default function App() {
       window.removeEventListener("online", resume);
       void supabase.removeChannel(channel);
     };
-  }, [session?.user?.id, refresh]);
+  }, [session?.user?.id, farmId, refresh]);
   useEffect(() => {
     if (!notice) return;
     const id = setTimeout(() => setNotice(""), 5000);
@@ -542,7 +570,7 @@ export default function App() {
     }
   };
   const save = async (table, row) => {
-    await writeCloud(table, { ...row, owner_id: session.user.id });
+    await writeCloud(table, { ...row, owner_id: session.user.id, farm_id: farmId });
     await refresh();
     setNotice("Cambios guardados");
   };
@@ -575,6 +603,7 @@ export default function App() {
     act(async () => {
       await writeCloud("alert_acknowledgements", {
         owner_id: session.user.id,
+        farm_id: farmId,
         alert_id: alert.id,
       });
       await refresh();
@@ -638,6 +667,8 @@ export default function App() {
       }
     }
     setData(null);
+    setFarmId(null);
+    setFarms(null);
     setError("");
     setPage("overview");
     setSelected(null);
@@ -662,6 +693,39 @@ export default function App() {
         }
       />
     );
+  const openFarm = (id) => {
+    refreshGeneration.current += 1;
+    setData(null);
+    setSelected(null);
+    setPage("overview");
+    setFarmId(id);
+    setCreatingFarm(false);
+    setError("");
+  };
+  if (!farmId) {
+    if (!farms && !error) return <div className="loading" role="status">Cargando tus fincas…</div>;
+    return <FarmAccess
+      farms={farms || []}
+      creating={creatingFarm || !farms?.length}
+      brand={<BrandMark />}
+      appearance={<ThemeSwitch theme={theme} onChange={setTheme} />}
+      busy={busy} error={error}
+      onOpen={openFarm}
+      onStartCreate={() => { setError(""); setCreatingFarm(true); }}
+      onCancel={() => { setError(""); setCreatingFarm(false); }}
+      onExit={() => act(leaveAccess)}
+      onCreate={(profile) => act(async () => {
+        if (profile.latitude == null) throw new Error("Selecciona la ubicación de la finca en el mapa.");
+        if (!profile.breeds.length) throw new Error("Indica al menos una raza presente.");
+        const row = { ...defaults, ...profile, id: uid(), owner_id: session.user.id };
+        validateSettings(row);
+        await writeCloud("farm_settings", row);
+        await refreshFarms();
+        openFarm(row.id);
+        setNotice("Finca creada");
+      })}
+    />;
+  }
   if (!data)
     return error ? (
       <ErrorPage error={error} onRetry={refresh} onBack={leaveAccess} />
@@ -811,6 +875,20 @@ export default function App() {
                 setSelected(null);
                 setPage("settings");
               }}
+              onSwitchFarm={() => {
+                refreshGeneration.current += 1;
+                setData(null);
+                setFarmId(null);
+                setCreatingFarm(false);
+                void refreshFarms();
+              }}
+              onCreateFarm={() => {
+                refreshGeneration.current += 1;
+                setData(null);
+                setFarmId(null);
+                setCreatingFarm(true);
+                void refreshFarms();
+              }}
             />
           </div>
         </header>
@@ -954,6 +1032,8 @@ export default function App() {
                     </button>
                   </div>
                   <HerdMap
+                    key={farmId}
+                    center={data.settings.latitude == null ? null : [data.settings.latitude, data.settings.longitude]}
                     animals={active}
                     readings={data.readings}
                     polygon={data.settings.polygon}
@@ -1212,6 +1292,8 @@ export default function App() {
           {page === "map" && (
             <section className="panel full-map">
               <HerdMap
+                key={farmId}
+                center={data.settings.latitude == null ? null : [data.settings.latitude, data.settings.longitude]}
                 receiver={receiver}
                 collarEnabled={physicalDevice?.enabled ?? false}
                 onSaveBoundary={async (polygon) => {
@@ -1376,9 +1458,11 @@ export default function App() {
                   validateSettings(s);
                   await writeCloud("farm_settings", {
                     ...s,
+                    id: farmId,
                     owner_id: session.user.id,
                   });
                   await refresh();
+                  await refreshFarms();
                   setNotice("Configuración guardada");
                 })
               }
@@ -1407,6 +1491,7 @@ export default function App() {
             onMode={(intervalSeconds) => act(async () => {
               await writeCloud("tracking_mode", {
                 owner_id: session.user.id,
+                farm_id: farmId,
                 interval_seconds: intervalSeconds,
                 live_until: intervalSeconds === 5
                   ? new Date(Date.now() + 15 * 60_000).toISOString()
@@ -1420,13 +1505,14 @@ export default function App() {
             })}
             onAddModule={(input) => act(async () => {
               const row = validateModule(input, data.devices, data.modules);
-              await writeCloud("module_registry", { ...row, owner_id: session.user.id });
+              const { error } = await supabase.from("module_registry").insert({ ...row, owner_id: session.user.id, farm_id: farmId });
+              if (error) throw error.code === "23505" ? new Error("Este módulo ya está registrado en una finca.") : error;
               await refresh();
               setNotice("Módulo registrado; pendiente de comprobar la comunicación física");
             })}
             onRemoveModule={(moduleId) => act(async () => {
               const { error } = await supabase.from("module_registry").delete()
-                .eq("owner_id", session.user.id).eq("module_id", moduleId);
+                .eq("owner_id", session.user.id).eq("farm_id", farmId).eq("module_id", moduleId);
               if (error) throw error;
               await refresh();
               setNotice("Módulo eliminado del registro");
@@ -1584,11 +1670,12 @@ export default function App() {
                   data.devices.some((d) => d.animal_id === f.get("animal_id"))
                 )
                   throw new Error("El animal ya tiene un collar vinculado.");
-                await save(
-                  "devices",
-                  { id, animal_id: f.get("animal_id"), enabled: true },
-                  "devices",
-                );
+                const { error } = await supabase.from("devices").insert({
+                  id, animal_id: f.get("animal_id"), enabled: true,
+                  owner_id: session.user.id, farm_id: farmId,
+                });
+                if (error) throw error.code === "23505" ? new Error("Este collar ya está vinculado en una finca.") : error;
+                await refresh();
                 setModal(null);
               });
             }}
@@ -1816,6 +1903,7 @@ function EventForm({ animal, busy, onSave }) {
   );
 }
 function SettingsForm({ settings: s, busy, onSave }) {
+  const [location, setLocation] = useState(s.latitude == null ? null : [s.latitude, s.longitude]);
   return (
     <form
       className="settings-grid"
@@ -1824,16 +1912,19 @@ function SettingsForm({ settings: s, busy, onSave }) {
         const f = new FormData(e.target);
         let polygon;
         try {
-          polygon = f
-            .get("polygon")
-            .trim()
+          polygon = f.get("polygon").trim() ? f
+            .get("polygon").trim()
             .split("\n")
-            .map((line) => line.split(",").map((x) => Number(x.trim())));
+            .map((line) => line.split(",").map((x) => Number(x.trim()))) : [];
         } catch {
           polygon = [];
         }
         onSave({
           name: f.get("name").trim(),
+          production_type: f.get("production_type"),
+          breeds: [...new Set(String(f.get("breeds")).split(",").map((x) => x.trim()).filter(Boolean))],
+          latitude: location?.[0] ?? null,
+          longitude: location?.[1] ?? null,
           polygon,
           offline_minutes: Number(f.get("offline_minutes")),
           temperature_delta: Number(f.get("temperature_delta")),
@@ -1847,19 +1938,30 @@ function SettingsForm({ settings: s, busy, onSave }) {
         <Field label="Nombre de la finca">
           <input name="name" defaultValue={s.name} maxLength={100} required />
         </Field>
+        <Field label="Tipo de producción">
+          <select name="production_type" defaultValue={s.production_type || "doble"}>
+            <option value="leche">Leche</option><option value="engorde">Engorde</option><option value="doble">Doble propósito</option>
+          </select>
+        </Field>
+        <Field label="Razas presentes · separadas por coma">
+          <input name="breeds" defaultValue={(s.breeds || []).join(", ")} maxLength={500} placeholder="Holstein, Jersey, Brahman" />
+        </Field>
         <Field label="Vértices de la cerca · latitud, longitud">
           <textarea
             name="polygon"
             rows={7}
             defaultValue={s.polygon.map((p) => p.join(", ")).join("\n")}
-            required
             placeholder="10.005, -84.120"
           />
         </Field>
         <p className="hint">
           Un vértice por línea, en orden alrededor del perímetro, sin cruzar los
-          lados. Mínimo 3 puntos. También puedes dibujar el perímetro en Mapa.
+          lados. Si dibujas el perímetro, usa al menos 3 puntos. También puedes hacerlo en Mapa.
         </p>
+      </section>
+      <section className="panel farm-settings-location">
+        <h2>Ubicación de la finca</h2>
+        <FarmLocationPicker value={location} onChange={setLocation} />
       </section>
       <section className="panel">
         <h2>Criterios para revisar</h2>

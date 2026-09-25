@@ -10,6 +10,7 @@ export default function HerdMap({
   onSaveBoundary,
   receiver = null,
   collarEnabled = true,
+  center = null,
 }) {
   const [editing, setEditing] = useState(false);
   const [points, setPoints] = useState([]);
@@ -48,7 +49,7 @@ export default function HerdMap({
       zoomAnimation: false,
       fadeAnimation: !reducedMotion,
       markerZoomAnimation: false,
-    }).setView([10.001, -84.115], 15);
+    }).setView(center || [10.001, -84.115], center ? 16 : 15);
     layer.current = L.layerGroup().addTo(map.current);
     let frame;
     const resize = () => {

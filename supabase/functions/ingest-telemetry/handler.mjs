@@ -25,7 +25,7 @@ export const createHandler = (db) => async (req) => {
     .join("");
   const { data: gateway, error: credentialError } = await db
     .from("gateway_credentials")
-    .select("owner_id")
+    .select("owner_id,farm_id")
     .eq("token_hash", hash)
     .eq("enabled", true)
     .maybeSingle();
@@ -37,6 +37,7 @@ export const createHandler = (db) => async (req) => {
       .from("tracking_mode")
       .select("interval_seconds,live_until")
       .eq("owner_id", gateway.owner_id)
+      .eq("farm_id", gateway.farm_id)
       .maybeSingle();
     if (trackingError) return reply(503, { error: "No se pudo leer el modo de rastreo" });
     const live = tracking?.interval_seconds === 5 &&
@@ -80,9 +81,10 @@ export const createHandler = (db) => async (req) => {
   }
   const { data: device, error: deviceError } = await db
     .from("devices")
-    .select("id,animal_id,owner_id,animals!inner(status)")
+    .select("id,animal_id,owner_id,farm_id,animals!inner(status)")
     .eq("id", packet.device_id)
     .eq("owner_id", gateway.owner_id)
+    .eq("farm_id", gateway.farm_id)
     .eq("enabled", true)
     .eq("animals.status", "activo")
     .maybeSingle();
@@ -96,6 +98,7 @@ export const createHandler = (db) => async (req) => {
     .insert({
       ...packet,
       owner_id: device.owner_id,
+      farm_id: device.farm_id,
       animal_id: device.animal_id,
     });
   if (error?.code === "23505")
