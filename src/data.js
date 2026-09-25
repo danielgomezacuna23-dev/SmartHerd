@@ -40,6 +40,12 @@ export async function loadCloud() {
     modules: results[7].data,
   };
 }
+export async function loadTelemetry() {
+  const { data, error } = await supabase.from("telemetry").select("*")
+    .order("recorded_at", { ascending: false }).limit(5000);
+  if (error) throw error;
+  return data;
+}
 export async function writeCloud(table, row) {
   const { error } = await supabase.from(table).upsert(row);
   if (error) throw error;

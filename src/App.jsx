@@ -29,7 +29,7 @@ import {
   Sun,
   Moon,
 } from "lucide-react";
-import { supabase, loadCloud, writeCloud } from "./data";
+import { supabase, loadCloud, loadTelemetry, writeCloud } from "./data";
 import {
   uid,
   today,
@@ -473,6 +473,15 @@ export default function App() {
         setError("No se pudieron cargar los datos: " + e.message);
     }
   }, []);
+  const refreshReadings = useCallback(async () => {
+    try {
+      const readings = await loadTelemetry();
+      setData((current) => current ? { ...current, readings } : current);
+      setError((current) => current.startsWith("No se pudieron cargar las lecturas") ? "" : current);
+    } catch (e) {
+      setError("No se pudieron cargar las lecturas: " + e.message);
+    }
+  }, []);
   useEffect(() => {
     if (session) refresh();
   }, [session, refresh]);
@@ -484,9 +493,14 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!session) return;
-    const id = setInterval(() => { if (!document.hidden) void refresh(); }, trackingInterval * 1000);
+    const id = setInterval(() => { if (!document.hidden) void refresh(); }, 300_000);
     return () => clearInterval(id);
-  }, [session, refresh, trackingInterval]);
+  }, [session, refresh]);
+  useEffect(() => {
+    if (!session || trackingInterval !== 5) return;
+    const id = setInterval(() => { if (!document.hidden) void refreshReadings(); }, 5_000);
+    return () => clearInterval(id);
+  }, [session, refreshReadings, trackingInterval]);
   useEffect(() => {
     if (!session?.user?.id || !supabase) return;
     let timer;
@@ -495,7 +509,7 @@ export default function App() {
       timer = setTimeout(() => { if (!document.hidden) void refresh(); }, 250);
     };
     const channel = supabase.channel(`smartherd-live-${session.user.id}-${Date.now()}`);
-    for (const table of ["telemetry", "devices", "animals", "events", "farm_settings", "alert_acknowledgements", "tracking_mode", "module_registry"])
+    for (const table of ["devices", "animals", "events", "farm_settings", "alert_acknowledgements", "tracking_mode", "module_registry"])
       channel.on("postgres_changes", {
         event: "*", schema: "public", table,
         filter: `owner_id=eq.${session.user.id}`,
