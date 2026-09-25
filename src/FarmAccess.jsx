@@ -31,7 +31,7 @@ export default function FarmAccess({ farms, creating, draftFarm, onCreate, onOpe
           </div>
           <h2>Ubicación en el mapa</h2>
           <FarmLocationPicker value={location} onChange={setLocation} />
-          <div className="farm-create-actions">{farms.length > 0 && <button type="button" className="secondary" onClick={onCancel}>Volver a mis fincas</button>}<button className="primary" disabled={busy || !location}>{busy ? "Guardando…" : "Crear finca"}<ArrowRight size={18}/></button></div>
+          <div className="farm-create-actions">{farms.length > 0 && (!draftFarm || farms.length > 1) && <button type="button" className="secondary" onClick={onCancel}>Volver a mis fincas</button>}<button className="primary" disabled={busy || !location}>{busy ? "Guardando…" : "Crear finca"}<ArrowRight size={18}/></button></div>
         </form>
       </section> : <section className="farm-list">
         <p className="eyebrow">SMART HERD</p><h1>Elige tu finca</h1><p className="muted">Selecciona la finca que quieres consultar o crea una nueva.</p>
