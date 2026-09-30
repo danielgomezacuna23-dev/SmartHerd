@@ -781,13 +781,14 @@ export default function App() {
     );
   const connected = data.devices.filter(
     (d) =>
-      d.enabled &&
-      data.readings.some(
+      d.enabled && (d.id === PHYSICAL_COLLAR_ID && receiver
+        ? receiver.receiver_connected && receiver.transmitter_connected
+        : data.readings.some(
         (r) =>
           r.device_id === d.id &&
           clock - Date.parse(r.recorded_at) <
             data.settings.offline_minutes * 60000,
-      ),
+      )),
   ).length;
   const physicalDevice = data.devices.find((device) => device.id === PHYSICAL_COLLAR_ID);
   const title = nav.find((n) => n[0] === page)?.[1];
@@ -1365,7 +1366,7 @@ export default function App() {
                 Selecciona un marcador para abrir la ficha. Consulta la hora del reporte.
               </div>
               {!data.readings.some((r) => r.latitude != null) &&
-                !(receiver?.signal === "fix" && physicalDevice?.enabled) && (
+                !(receiver?.transmitter_connected && receiver?.signal === "fix" && physicalDevice?.enabled) && (
                 <Empty>Todavía no se han recibido coordenadas GPS.</Empty>
               )}
             </section>
@@ -1436,7 +1437,7 @@ export default function App() {
                                 {data.animals.find((a) => a.id === d.animal_id)
                                   ?.name || "Sin animal"}
                               </td>
-                              <td>{stamp(r?.recorded_at || (d.id === PHYSICAL_COLLAR_ID ? receiver?.received_at : null))}</td>
+                              <td>{stamp((d.id === PHYSICAL_COLLAR_ID ? receiver?.received_at : null) || r?.recorded_at)}</td>
                               <td>
                                 <Badge
                                   tone={
