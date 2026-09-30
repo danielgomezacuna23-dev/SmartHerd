@@ -1,7 +1,7 @@
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
 
-const root = "http://127.0.0.1:5173/";
+const root = process.env.SMARTHERD_TEST_URL || "http://127.0.0.1:5173/";
 const userId = "11111111-1111-4111-8111-111111111111";
 const farmId = "22222222-2222-4222-8222-222222222222";
 const farm = {
@@ -60,7 +60,7 @@ let receiver = { device_id: "SH-COLLAR-001", transmitter_connected: true,
   rssi: -55, snr: 8.5, satellites: 0, valid_nmea: 30, gps_baud: 9600 };
 await page.route("http://127.0.0.1:8765/status", (route) => route.fulfill({
   status: 200, contentType: "application/json",
-  headers: { "access-control-allow-origin": root.slice(0, -1) },
+  headers: { "access-control-allow-origin": new URL(root).origin },
   body: JSON.stringify(receiver),
 }));
 await page.route(/(?:\.tile\.openstreetmap\.org|World_Imagery\/MapServer\/tile)/,
