@@ -115,6 +115,12 @@ try {
   await page.bringToFront();
   await page.waitForTimeout(1000);
   assert.equal(await page.getByText("Cargando tus fincas…").count(), 0);
+  receiver = { ...receiver, received_at: new Date().toISOString(), last_tx_at: new Date().toISOString() };
+  await page.getByRole("button", { name: "GPS: Sin señal GPS. Ver diagnóstico", exact: true }).waitFor();
+  await page.getByRole("button", { name: "LoRa: Conectado. Ver diagnóstico", exact: true }).waitFor();
+  await page.getByRole("button", { name: "LoRa: Conectado. Ver diagnóstico", exact: true }).click();
+  await page.getByRole("heading", { name: "Rastreo y diagnóstico" }).waitFor();
+  await page.getByRole("button", { name: "Cerrar", exact: true }).click();
   await page.getByRole("navigation").getByRole("button", { name: "Collares", exact: true }).click();
   const row = page.getByRole("row").filter({ hasText: "SH-COLLAR-001" });
   receiver = { ...receiver, received_at: new Date().toISOString(), last_tx_at: new Date().toISOString() };

@@ -44,7 +44,7 @@ import { ErrorPage, ErrorPanel } from "./Errors";
 import { configurationError } from "./data";
 import MotionContent from "./MotionContent";
 import useReceiverStatus, { sendReceiverMode } from "./useReceiverStatus";
-import { collarStatus, PHYSICAL_COLLAR_ID } from "./collarStatus.mjs";
+import { collarStatus, summarySignals, PHYSICAL_COLLAR_ID } from "./collarStatus.mjs";
 import { DEMO_INTERVAL_SECONDS } from "./tracking.mjs";
 import TrackingPanel from "./TrackingPanel";
 import { potentialHeatForecast } from "./reproduction.mjs";
@@ -791,6 +791,7 @@ export default function App() {
       )),
   ).length;
   const physicalDevice = data.devices.find((device) => device.id === PHYSICAL_COLLAR_ID);
+  const signals = summarySignals(physicalDevice, receiver, clock);
   const title = nav.find((n) => n[0] === page)?.[1];
   const alertList = (list, compact = false) =>
     list.length ? (
@@ -1000,6 +1001,16 @@ export default function App() {
           )}
           {page === "overview" && (
             <>
+              <div className="summary-signals" aria-label="Estado de GPS y LoRa">
+                {[[MapPin, "GPS", signals.gps], [Radio, "LoRa", signals.lora]].map(([Icon, label, status]) => (
+                  <button key={label} className="summary-signal" onClick={() => setModal({ type: "tracking" })}
+                    aria-label={`${label}: ${status.label}. Ver diagnóstico`}>
+                    <span className="summary-signal-heading"><Icon size={22} /><strong>{label}</strong><ArrowUpRight size={16} /></span>
+                    <Badge tone={status.tone}>{status.label}</Badge>
+                    <small>{status.detail}</small>
+                  </button>
+                ))}
+              </div>
               <div
                 className="stats dashboard-stats"
                 aria-label="Indicadores de la finca"

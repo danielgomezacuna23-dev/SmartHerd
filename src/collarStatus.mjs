@@ -1,4 +1,4 @@
-import { expectedReportAgeMs } from "./tracking.mjs";
+import { expectedReportAgeMs, inspectRadio, inspectGps } from "./tracking.mjs";
 export const PHYSICAL_COLLAR_ID = "SH-COLLAR-001";
 
 export function collarStatus(device, receiver, now = Date.now(), intervalSeconds = 300) {
@@ -38,4 +38,29 @@ export function collarStatus(device, receiver, now = Date.now(), intervalSeconds
   if (receiver.signal === "fix")
     return { label: "GPS y LoRa activos", tone: "", detail: "Posición recibida por el receptor" };
   return { label: "Esperando lectura", tone: "amber", detail: "Esperando una trama válida" };
+}
+
+export function summarySignals(device, receiver, now = Date.now()) {
+  if (!device || !device.enabled) {
+    const status = { label: device ? "Desactivado" : "Sin collar", tone: "neutral",
+      detail: device ? "Activa el collar para recibir mensajes" : "Vincula un collar a esta finca" };
+    return { gps: status, lora: status };
+  }
+  const interval = receiver?.demo_mode ? 3 : receiver?.transmitter_interval_seconds || 3;
+  const radio = inspectRadio(receiver, interval, now);
+  if (!radio.ok) {
+    const status = collarStatus(device, receiver, now, interval);
+    return {
+      gps: { label: "Sin datos recientes", tone: "neutral", detail: "Esperando una lectura del collar por LoRa" },
+      lora: { label: status.label, tone: status.tone, detail: status.detail },
+    };
+  }
+  const gps = inspectGps(receiver, interval, now);
+  return {
+    lora: { label: "Conectado", tone: "", detail: `RSSI ${receiver.rssi ?? "—"} dBm · SNR ${receiver.snr ?? "—"} dB` },
+    gps: { label: gps.ok ? "Posición válida" : receiver.signal === "no_data" ? "Sin datos GPS" : "Sin señal GPS",
+      tone: gps.ok ? "" : "amber", detail: gps.ok
+        ? `${receiver.latitude.toFixed(6)}, ${receiver.longitude.toFixed(6)}${receiver.satellites != null ? ` · ${receiver.satellites} satélites` : ""}`
+        : receiver.signal === "no_data" ? "LoRa activo; revisa la conexión del GPS" : "LoRa activo; esperando posición GPS" },
+  };
 }

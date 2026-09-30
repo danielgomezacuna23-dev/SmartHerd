@@ -1366,3 +1366,30 @@ footer .text-link {
 }
 .receiver-status span, .receiver-status small { color: var(--muted); }
 .receiver-status small { flex-basis: 100%; }
+
+.summary-signals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.summary-signal {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  text-align: left;
+  padding: 18px 22px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--ink);
+  transition: border-color 160ms ease;
+}
+.summary-signal:hover { border-color: var(--accent); }
+.summary-signal:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.summary-signal-heading { display: flex; align-items: center; gap: 10px; }
+.summary-signal-heading svg { color: var(--accent); }
+.summary-signal-heading svg:last-child { margin-left: auto; }
+.summary-signal .badge { justify-self: start; font-size: 15px; }
+.summary-signal small { color: var(--muted); overflow-wrap: anywhere; }
+@media (max-width: 540px) { .summary-signals { grid-template-columns: 1fr; gap: 12px; } }
