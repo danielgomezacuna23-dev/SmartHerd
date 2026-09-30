@@ -1356,3 +1356,13 @@ footer .text-link {
     gap: 6px;
   }
 }
+
+.receiver-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 12px 0 18px;
+}
+.receiver-status span, .receiver-status small { color: var(--muted); }
+.receiver-status small { flex-basis: 100%; }

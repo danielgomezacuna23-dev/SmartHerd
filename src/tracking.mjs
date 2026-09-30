@@ -1,3 +1,4 @@
+export const DEMO_INTERVAL_SECONDS = 3;
 export const NORMAL_INTERVAL_SECONDS = 300;
 export const LIVE_INTERVAL_SECONDS = 5;
 export const LIVE_DURATION_MS = 15 * 60_000;
@@ -11,7 +12,7 @@ export function effectiveTrackingInterval(tracking, now = Date.now()) {
 }
 
 export function expectedReportAgeMs(intervalSeconds) {
-  return Math.max(45_000, intervalSeconds * 2.2 * 1000);
+  return intervalSeconds === DEMO_INTERVAL_SECONDS ? 15_000 : Math.max(45_000, intervalSeconds * 2.2 * 1000);
 }
 
 export function inspectRadio(receiver, intervalSeconds, now = Date.now()) {
@@ -21,7 +22,7 @@ export function inspectRadio(receiver, intervalSeconds, now = Date.now()) {
   if (receiver.receiver_radio_ready === false)
     return { ok: false, message: "El receptor está conectado, pero LoRa no inició." };
   if (!receiver.transmitter_connected)
-    return { ok: false, message: "El emisor con GPS no está conectado." };
+    return { ok: false, message: "Sin enlace LoRa reciente con el collar. Revisa su batería, encendido, antena y distancia." };
   if (receiver.transmitter_radio_ready === false)
     return { ok: false, message: "El emisor está conectado, pero LoRa no inició." };
   const limit = expectedReportAgeMs(intervalSeconds);
@@ -37,6 +38,8 @@ export function inspectRadio(receiver, intervalSeconds, now = Date.now()) {
 export function inspectGps(receiver, intervalSeconds, now = Date.now()) {
   const radio = inspectRadio(receiver, intervalSeconds, now);
   if (!radio.ok) return { ok: false, message: `No se puede confirmar GPS: ${radio.message}` };
+  if (receiver.signal === "no_data")
+    return { ok: false, message: "LoRa funciona; no llegan datos NMEA válidos del GPS. Revisa alimentación y TX del GPS hacia GPIO18." };
   if (receiver.signal === "no_fix")
     return { ok: false, message: "LoRa funciona; el GPS todavía no tiene una posición válida." };
   if (receiver.signal === "fix" && Number.isFinite(receiver.latitude) && Number.isFinite(receiver.longitude))

@@ -2,7 +2,11 @@
 
 La estación recibe las tramas LoRa, identifica el collar y hace un POST HTTPS. El collar no necesita conectarse directamente a internet. Este documento define el contrato de datos; no presupone pines, cableado, protocolo LoRa ni sensores físicamente validados.
 
-Antes de solicitar una posición, la estación puede consultar `GET` a la misma URL con la misma cabecera `Authorization`. Recibe `{"interval_seconds":300,"live_until":null}` en modo habitual o `interval_seconds:5` mientras el usuario haya activado **Rastrear en tiempo real**. El modo rápido caduca a los 15 minutos. El firmware del emisor transmite cada 300 segundos normalmente y acepta por LoRa `SHCTRL1|SH-COLLAR-001|5|900` para activar cinco segundos, o `SHCTRL1|SH-COLLAR-001|300|0` para volver al modo habitual. El receptor actualizado acepta los comandos serie `M|5|900` y `M|300|0` para retransmitirlos por LoRa. Con ambos módulos conectados se verificó que el emisor recibe las órdenes y cambia el intervalo. En esta Mac, el botón web envía la orden al puente local y espera confirmación. Una estación autónoma todavía debe consultar Supabase y aplicar el modo cuando la web o esta Mac no estén presentes.
+## Demostración actual (expo3)
+
+El emisor transmite cada **3 segundos**, alimentado con batería, sin depender de USB o comandos desde la web. El receptor escucha continuamente y reenvía los paquetes por USB a la Mac. La [guía de hardware](../hardware/README.md) describe el protocolo `SHGPS3`/`SHRX3`, los identificadores y la carga segura. El puente actual expone esas lecturas a la página publicada en esta Mac; no hace POST automático a la función descrita abajo.
+
+El contrato cloud conserva `GET` para modos futuros de 300/5 segundos. Esos modos no se usan en la demostración actual y no alteran el firmware fijo de tres segundos. La persistencia automática del puente a Supabase requiere una estación autenticada y sigue pendiente.
 
 ## Solicitud
 

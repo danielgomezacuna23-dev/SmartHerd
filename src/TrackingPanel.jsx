@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Radio, MapPin, Clock3 } from "lucide-react";
-import { inspectGps, inspectRadio, LIVE_INTERVAL_SECONDS } from "./tracking.mjs";
+import { inspectGps, inspectRadio } from "./tracking.mjs";
 import { detectedModule, KNOWN_ESP32 } from "./modules.mjs";
 
 export default function TrackingPanel({ tracking, receiver, intervalSeconds, busy, onMode, onTestReceiver, modules, devices, onAddModule, onRemoveModule, onLinkCollar, error }) {
@@ -10,7 +10,6 @@ export default function TrackingPanel({ tracking, receiver, intervalSeconds, bus
   const [detectionMessage, setDetectionMessage] = useState("");
   const macInput = useRef(null);
   const nameInput = useRef(null);
-  const live = intervalSeconds === LIVE_INTERVAL_SECONDS;
   const availableCollars = devices.filter((device) => device.enabled &&
     !modules.some((module) => module.device_id === device.id));
   const detect = async () => {
@@ -57,24 +56,14 @@ export default function TrackingPanel({ tracking, receiver, intervalSeconds, bus
       <div className="tracking-status" role="status">
         <Clock3 size={19} />
         <span>
-          <strong>{live ? "Rastrear en tiempo real" : "Modo habitual"}</strong>
-          <small>{live ? "Consulta cada 5 segundos" : "Consulta cada 5 minutos"}</small>
-          <small>{receiver?.transmitter_interval_seconds === intervalSeconds
-            ? "Intervalo confirmado en el emisor"
-            : "Intervalo físico pendiente de confirmar"}</small>
+          <strong>Demostración continua</strong>
+          <small>Mensajes LoRa cada 3 segundos mientras el collar está encendido</small>
+          <small>{receiver?.transmitter_connected && receiver?.transmitter_interval_seconds === 3
+            ? "Confirmado por mensajes LoRa recibidos"
+            : "Esperando mensajes del firmware de demostración"}</small>
         </span>
       </div>
-      <div className="tracking-mode-actions" role="group" aria-label="Frecuencia de rastreo">
-        <button type="button" className={live ? "secondary" : "primary"}
-          aria-pressed={!live} disabled={busy || (!live && receiver?.transmitter_interval_seconds === 300)} onClick={() => onMode(300)}>
-          Habitual · 5 min
-        </button>
-        <button type="button" className={live ? "primary" : "secondary"}
-          aria-pressed={live} disabled={busy || (live && receiver?.transmitter_interval_seconds === 5)} onClick={() => onMode(5)}>
-          Rastrear en tiempo real · 5 s
-        </button>
-      </div>
-      {live && <p className="tracking-hint">El modo rápido vuelve al habitual a las {new Date(tracking.live_until).toLocaleTimeString("es-CR", { hour: "numeric", minute: "2-digit" })} para limitar el consumo.</p>}
+      <p className="tracking-hint">El collar puede funcionar solo con batería. La estación receptora escucha continuamente y se conecta por USB a esta Mac.</p>
       <div className="tracking-tests">
         <h3>Comprobar los módulos</h3>
         <p>Estas pruebas leen el último estado real del receptor conectado a esta Mac para <strong>SH-COLLAR-001</strong>. No crean posiciones ficticias.</p>
@@ -88,6 +77,11 @@ export default function TrackingPanel({ tracking, receiver, intervalSeconds, bus
             onClick={() => test("gps")}><MapPin size={17} /> {testing === "gps" ? "Comprobando…" : "Probar recepción GPS"}</button>
           {results.gps && <p role="status" className={results.gps.ok ? "tracking-result success" : "tracking-result"}>{results.gps.message}</p>}
         </div>
+        {receiver?.demo_mode && receiver?.transmitter_connected && <p className="tracking-hint">
+          Satélites: {receiver.satellites ?? "Sin dato"} · HDOP: {receiver.hdop ?? "Sin dato"} ·
+          Mensajes GPS válidos: {receiver.valid_nmea ?? "—"} · Velocidad GPS: {receiver.gps_baud ?? "—"} baud ·
+          Tiempo encendido: {Math.floor((receiver.uptime_ms ?? 0) / 1000)} s
+        </p>}
         {receiver?.received_at && <small>Última trama local: {new Date(receiver.received_at).toLocaleString("es-CR")}</small>}
       </div>
       <div className="tracking-tests module-registry">
@@ -128,7 +122,7 @@ export default function TrackingPanel({ tracking, receiver, intervalSeconds, bus
             <input ref={macInput} name="module_id" required maxLength={17} placeholder={KNOWN_ESP32[role].mac} autoCapitalize="characters" spellCheck="false" />
           </label>
           <small className="tracking-hint">Es el identificador de 12 caracteres hexadecimales de la placa; puedes escribirlo con o sin dos puntos. El emisor con GPS y el receptor tienen MAC distintas.</small>
-          <button type="button" className="secondary" disabled={busy || !!testing} onClick={detect}>Usar ESP conectado</button>
+          <button type="button" className="secondary" disabled={busy || !!testing} onClick={detect}>Detectar módulo</button>
           {detectionMessage && <p className="tracking-hint" role="status">{detectionMessage}</p>}
           {role === "emisor" && <label>Collar asociado
             <select name="device_id" required defaultValue="">
@@ -142,9 +136,10 @@ export default function TrackingPanel({ tracking, receiver, intervalSeconds, bus
           <button type="submit" className="secondary" disabled={busy || (role === "emisor" && !availableCollars.length)}>Registrar módulo</button>
         </form>
         {error && <p className="error" role="alert">{error}</p>}
-        <p className="tracking-hint">Registrar un módulo no lo programa ni demuestra que esté en línea. La comunicación se confirma con las pruebas cuando los ESP32 estén conectados.</p>
+        <p className="tracking-hint">Registrar un módulo no lo programa ni demuestra que esté en línea. La comunicación se confirma con mensajes LoRa, con el collar encendido y la estación conectada por USB.</p>
       </div>
-      <p className="tracking-hint">Con ambos ESP32 conectados a esta Mac y el puente local activo, el botón envía la orden por LoRa y espera confirmación del emisor. Sin puente local, la preferencia queda guardada para la estación, pero el intervalo físico no cambia.</p>
+      <p className="tracking-hint">Abre «Iniciar puente SmartHerd» en esta Mac y permite el acceso a la red local cuando Chrome lo solicite. Solo el receptor necesita USB. La página y Supabase requieren internet; el enlace LoRa entre módulos funciona independientemente.</p>
+
     </div>
   );
 }

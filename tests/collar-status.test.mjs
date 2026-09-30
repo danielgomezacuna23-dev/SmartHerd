@@ -39,3 +39,14 @@ test("rechaza estados del puente con identidad o coordenadas inválidas", () => 
   assert.equal(validReceiverStatus({ ...packet, latitude: 91 }), false);
   assert.equal(validReceiverStatus({ ...packet, received_at: "desconocido" }), false);
 });
+
+test("el collar con batería se confirma por LoRa y caduca tras 15 segundos", () => {
+  const packet = { ...online, device_id: PHYSICAL_COLLAR_ID, latitude: 10, longitude: -84,
+    demo_mode: true, status_source: "lora", transmitter_usb_connected: false, transmitter_interval_seconds: 3 };
+  assert.equal(validReceiverStatus(packet), true);
+  assert.equal(collarStatus(device, packet, now, 300).label, "GPS y LoRa activos");
+  assert.equal(collarStatus(device, { ...packet, signal: "no_data", latitude: null, longitude: null }, now).label, "GPS sin datos");
+  assert.equal(collarStatus(device, { ...packet, signal: "no_fix", latitude: null, longitude: null }, now).label, "Sin señal GPS");
+  assert.equal(collarStatus(device, packet, now + 16_000).label, "Sin señal LoRa");
+  assert.equal(collarStatus(device, { ...packet, transmitter_connected: false, receiver_connected: false }, now).label, "Receptor desconectado");
+});

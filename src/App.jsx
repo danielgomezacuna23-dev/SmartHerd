@@ -45,7 +45,7 @@ import { configurationError } from "./data";
 import MotionContent from "./MotionContent";
 import useReceiverStatus, { sendReceiverMode } from "./useReceiverStatus";
 import { collarStatus, PHYSICAL_COLLAR_ID } from "./collarStatus.mjs";
-import { effectiveTrackingInterval } from "./tracking.mjs";
+import { DEMO_INTERVAL_SECONDS } from "./tracking.mjs";
 import TrackingPanel from "./TrackingPanel";
 import { potentialHeatForecast } from "./reproduction.mjs";
 import { validateModule } from "./modules.mjs";
@@ -440,12 +440,16 @@ export default function App() {
     [busy, setBusy] = useState(false),
     [clock, setClock] = useState(Date.now()),
     [authEpoch, setAuthEpoch] = useState(0);
-  const trackingInterval = effectiveTrackingInterval(data?.tracking, clock);
-  const { receiver, refresh: refreshReceiver } = useReceiverStatus(
+  const trackingInterval = DEMO_INTERVAL_SECONDS; // Expo: fixed radio cadence, including battery operation.
+  const { receiver: rawReceiver, refresh: refreshReceiver } = useReceiverStatus(
     !!session && !!data?.devices.some((device) =>
       device.id === PHYSICAL_COLLAR_ID && device.enabled),
     3_000,
   );
+  const receiver = rawReceiver?.demo_mode &&
+    (!Number.isFinite(Date.parse(rawReceiver.received_at)) || clock - Date.parse(rawReceiver.received_at) > 15_000)
+    ? { ...rawReceiver, transmitter_connected: false, transmitter_radio_ready: false }
+    : rawReceiver;
   const refreshGeneration = useRef(0);
   const farmLoadGeneration = useRef(0);
   const currentUserId = useRef(null);
@@ -548,7 +552,7 @@ export default function App() {
   useEffect(() => {
     const id = setInterval(() => {
       setClock(Date.now());
-    }, 5000);
+    }, 1000);
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
@@ -556,11 +560,6 @@ export default function App() {
     const id = setInterval(() => { if (!document.hidden) void refresh(); }, 300_000);
     return () => clearInterval(id);
   }, [session?.user?.id, farmId, refresh]);
-  useEffect(() => {
-    if (!session || !farmId || trackingInterval !== 5) return;
-    const id = setInterval(() => { if (!document.hidden) void refreshReadings(); }, 5_000);
-    return () => clearInterval(id);
-  }, [session?.user?.id, farmId, refreshReadings, trackingInterval]);
   useEffect(() => {
     if (!session?.user?.id || !farmId || !supabase) return;
     let timer;
@@ -1337,6 +1336,11 @@ export default function App() {
           )}
           {page === "map" && (
             <section className="panel full-map">
+              <div className="receiver-status" role="status">
+                <strong>{collarStatus(physicalDevice || { id: PHYSICAL_COLLAR_ID, enabled: true }, receiver, clock, trackingInterval).label}</strong>
+                <span>{collarStatus(physicalDevice || { id: PHYSICAL_COLLAR_ID, enabled: true }, receiver, clock, trackingInterval).detail}</span>
+                {receiver?.transmitter_connected && receiver.signal === "fix" && <small>{receiver.latitude.toFixed(6)}, {receiver.longitude.toFixed(6)} · {stamp(receiver.received_at)}</small>}
+              </div>
               <HerdMap
                 key={farmId}
                 center={data.settings.latitude == null ? null : [data.settings.latitude, data.settings.longitude]}

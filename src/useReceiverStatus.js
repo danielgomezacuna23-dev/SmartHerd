@@ -5,13 +5,13 @@ export function validReceiverStatus(value) {
   if (!value || value.device_id !== PHYSICAL_COLLAR_ID) return false;
   if (typeof value.receiver_connected !== "boolean" ||
       typeof value.transmitter_connected !== "boolean" ||
-      !["waiting", "no_fix", "fix"].includes(value.signal)) return false;
+      !["waiting", "no_fix", "no_data", "fix"].includes(value.signal)) return false;
   if (value.transmitter_interval_seconds != null &&
-      ![5, 300].includes(value.transmitter_interval_seconds)) return false;
+      ![3, 5, 300].includes(value.transmitter_interval_seconds)) return false;
   if (value.signal === "fix" &&
       (!Number.isFinite(value.latitude) || !Number.isFinite(value.longitude) ||
        Math.abs(value.latitude) > 90 || Math.abs(value.longitude) > 180)) return false;
-  if (["fix", "no_fix"].includes(value.signal) &&
+  if (["fix", "no_fix", "no_data"].includes(value.signal) &&
       !Number.isFinite(Date.parse(value.received_at))) return false;
   return true;
 }

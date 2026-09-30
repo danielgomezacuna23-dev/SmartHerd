@@ -1,54 +1,59 @@
-# Enlace local ESP32 → LoRa → SmartHerd
+# Demostración ExpoTécnica: collar GPS → LoRa → receptor USB → web
 
-Este montaje usa dos ESP32-S3. El transmisor lee el GPS y envía una trama LoRa `SHGPS2` cada cinco minutos en modo habitual o cada cinco segundos en modo rápido. La trama lleva el identificador `SH-COLLAR-001`, secuencia y `FIX` con coordenadas válidas, o `NO_FIX` sin coordenadas. El receptor publica las tramas recibidas por su puerto serie. `bridge.py` supervisa los puertos USB y expone `http://127.0.0.1:8765/status` y `POST /mode` en esta Mac. La página pública usa el segundo para ordenar el cambio de intervalo y esperar la confirmación del emisor. El puente no escribe en Supabase ni convierte una falta de GPS en una ubicación ficticia. La web evalúa la antigüedad de cada lectura según el intervalo seleccionado.
+El firmware `expo3` transmite **cada 3 segundos**, continuamente mientras esté encendido. El emisor puede usar únicamente batería: no espera USB ni Wi-Fi y no recibe órdenes de la computadora. El receptor usa recepción LoRa continua; no transmite controles ni alterna ventanas de escucha. El firmware utiliza [recepción continua y transmisión asíncrona de arduino-LoRa](https://github.com/sandeepmistry/arduino-LoRa/blob/master/API.md).
 
-## Identificación de los equipos observada el 23/9/2026
-
-| Función | Puerto observado | Serie USB | ID interno del chip |
+| Equipo | Serie USB / MAC | ID interno del chip | Programa |
 | --- | --- | --- | --- |
-| Transmisor con GPS, conectado directamente | `/dev/cu.usbmodem1101` | `68:EE:8F:4F:32:20` | `20324F8FEE68` |
-| Receptor sin GPS, conectado al hub | `/dev/cu.usbmodem31101` | `68:EE:8F:4F:50:20` | `20504F8FEE68` |
+| Collar emisor con GPS | `68:EE:8F:4F:32:20` | `20324F8FEE68` | `gps_tx` |
+| Estación receptora sin GPS | `68:EE:8F:4F:50:20` | `20504F8FEE68` | `base_rx` |
 
-`upload_checked.py` busca la placa por serie USB y cancela la carga si no coincide; el puente verifica **serie USB, rol e ID interno del chip** antes de aceptar mensajes. Esto tolera cambios en el nombre del puerto y evita invertir los módulos. Para identificar uno manualmente, abre su puerto serie a 115200 baudios y envía `I`: responde `SHGPS_TX` (emisor) o `SHGPS_RX` (receptor) con su chip y estado de radio. Los dos LoRa deben tener antena instalada antes de transmitir; esto fue confirmado por el usuario para esta prueba.
+El nombre del puerto puede cambiar. `upload_checked.py` verifica la serie USB antes de cargar para impedir invertir las placas. Envía `I` a 115200 baudios para consultar rol, chip y versión.
 
-## Configuración y ejecución
+## Cargar después
 
-Desde esta carpeta, con PlatformIO instalado:
+Los dos programas están compilados; **no fueron cargados ni probados físicamente el 30/9/2026**, porque los ESP32 están desconectados. Conecta cada placa y abre `Cargar emisor GPS.command` o `Cargar receptor LoRa.command`, o ejecuta:
 
 ```sh
 ~/.platformio/penv/bin/python upload_checked.py gps_tx
 ~/.platformio/penv/bin/python upload_checked.py base_rx
-~/.platformio/penv/bin/python bridge.py
 ```
 
-También puedes abrir `Iniciar puente SmartHerd.command` para mantener el puente en marcha. Deja ambos ESP32 conectados y con antena. El botón **Rastrear en tiempo real** de la web requiere este puente local en la misma Mac; desde otro dispositivo solo se guardará la preferencia en Supabase.
+Cierra el puente antes de programar el receptor. Después alimenta el collar con batería y conecta **solo el receptor** por USB a la Mac. Ambos módulos LoRa deben tener antena.
 
-En otra terminal, desde la raíz de este proyecto web:
+## Usar la página publicada
+
+Abre `Iniciar puente SmartHerd.command`, o `Iniciar SmartHerd.command` en la carpeta web, que abre la página pública y ejecuta el puente. Inicia sesión, elige la finca y conserva el collar `SH-COLLAR-001` activo y vinculado. En los tres puntos junto al perfil abre **Rastreo y diagnóstico**. Permite el acceso a red local cuando Chrome lo solicite. La web consulta el puente cada 3 segundos cuando está visible; al volver a la pestaña consulta de inmediato.
+
+La interfaz, cuentas y fincas usan Supabase; la página está alojada en GitHub Pages. El mapa y Supabase requieren internet. Este puente entrega los paquetes a la página de **esta misma Mac**; todavía no los persiste en Supabase ni proporciona rastreo desde otros dispositivos. No hace falta una copia offline ni un servidor de página local.
+
+## Estados reales
+
+- **GPS y LoRa activos:** posición GPS válida y reciente, recibida por LoRa.
+- **Sin señal GPS:** llegan tramas NMEA válidas pero todavía no hay posición; LoRa funciona.
+- **GPS sin datos:** no llegaron mensajes NMEA válidos recientemente; revisar alimentación, cableado y baudios del GPS.
+- **Sin señal LoRa:** pasan más de 15 segundos sin recibir mensajes del collar. Puede estar apagado, sin batería o fuera de alcance; el silencio por sí solo no permite diferenciar esas causas.
+- **Receptor desconectado / LoRa no disponible / Monitoreo no disponible:** revisar USB, inicio de radio o ejecución/permisos del puente respectivamente.
+- **Desactivado:** el collar está desactivado desde la página.
+
+La conexión USB del emisor **no determina** si está en línea. El puente comprueba el chip del emisor en los paquetes LoRa y la identidad USB/firmware del receptor. Esta identificación evita confusiones de placas; no es autenticación criptográfica de radio.
+
+## Protocolo expo3
+
+Radio (16 campos):
+
+`SHGPS3|collar|chip|boot|secuencia|FIX/NO_FIX/NO_DATA|lat|lon|satélites|hdop|edadGPSms|nmeaVálidos|bytesGPS|uptimeMs|3|baud`
+
+USB (18 campos): el receptor cambia `SHGPS3` por `SHRX3` y añade `|RSSI|SNR`, medidos en recepción. `boot` identifica cada arranque, por lo que la secuencia reiniciada no se confunde con la sesión anterior. Sin posición, latitud/longitud van vacías y edad GPS es `-1`; satélites/HDOP desconocidos usan `-1`, no datos inventados. No hay sensor de batería: no se transmite un porcentaje ficticio. RSSI/SNR describen la trama recibida, no un acuse de recibo al collar.
+
+- GPS NMEA a GPIO18, UART inicial 9600; búsqueda 4800/38400/115200 si no llega ninguna trama válida. Se preservan campos NMEA vacíos, se valida checksum y estado RMC `A`, límites y hemisferios. Posición vencida a los 15 segundos.
+- LoRa: SPI SCK12/MISO13/MOSI11, CS10/RESET16/DIO0 15; 915MHz, 2dBm, SF7, BW125kHz, CR4/5, preámbulo8, sync0x12, CRC.
+- `bridge.py`: `127.0.0.1:8765/status`, sin caché. Reconecta el receptor por serie USB estable. El modo de 3 segundos es fijo; `/mode` informa que no admite cambios durante esta demostración.
+
+## Verificar software
 
 ```sh
-npm run dev -- --port 5173 --strictPort
+~/.platformio/penv/bin/pio run -e gps_tx -e base_rx
+~/.platformio/penv/bin/python -m unittest test_bridge.py
 ```
 
-Abre `http://127.0.0.1:5173/`, inicia sesión y ve a **Collares** o **Mapa**. El puente y la página deben seguir ejecutándose en esta Mac. El estado se decide así:
-
-| Mensaje web | Evidencia |
-| --- | --- |
-| **GPS y LoRa activos** | Trama reciente `FIX` recibida. |
-| **Sin señal GPS** | Trama reciente `NO_FIX` recibida por LoRa: la radio funciona, pero no hay posición válida. |
-| **Sin señal LoRa** | El emisor transmite por serie USB pero no llegan tramas al receptor dentro del margen del intervalo elegido, o la radio del emisor no inició. |
-| **Desconectado** | El emisor con GPS ya no está presente por USB. |
-| **Desactivado** | El collar fue desactivado en la configuración de la web. |
-| **Sin transmisión / Receptor desconectado / LoRa no disponible / Monitoreo no disponible** | Diagnósticos adicionales para evitar atribuir incorrectamente el problema al GPS o al collar. |
-
-Los collares `SH-COLLAR-002` a `004` son ejemplos sin módulo físico. El diagnóstico **Desconectado** requiere que el emisor siga conectado por USB a esta Mac: si en el futuro funciona con batería lejos de la computadora, una ausencia de paquetes LoRa **no permite saber** si perdió enlace o si se apagó. Para un despliegue remoto se necesita un canal de estado independiente o un protocolo de acuse de recibo, además de transporte autenticado y persistencia en Supabase.
-
-## LoRa y GPS
-
-- Radio SX1276/LoRa: SCK 12, MISO 13, MOSI 11, CS 10, RESET 16, DIO0 15; 915 MHz, 2 dBm, SF7, BW125, CR4/5, preámbulo 8, sync `0x12`, CRC.
-- GPS: NMEA RMC en ESP32 GPIO18 (pin confirmado por el usuario). El firmware comienza a 9600 baudios y, si no recibe una trama RMC válida, prueba 4800, 38400 y 115200 cada ocho segundos. Una lectura válida debe tener checksum correcto, estado `A` y latitud/longitud válidas. Una solución vencida deja de enviarse tras 15 segundos.
-- Control de intervalo: el receptor acepta por serie `M|5|900` para solicitar rastreo rápido durante hasta 15 minutos y `M|300|0` para volver al modo habitual. Repite el comando por LoRa durante 20 segundos para coincidir con la ventana de escucha del emisor. El emisor vuelve automáticamente a cinco minutos al vencer el plazo. `POST /mode` en el puente envía la orden y espera hasta 15 segundos una confirmación serie del emisor. El endpoint solo acepta el origen de la web pública o el servidor local. El puente todavía no consulta Supabase por sí mismo ni envía telemetría a la nube: funciona mientras la página, el puente y ambos módulos estén disponibles en esta Mac.
-- Las coordenadas no están protegidas criptográficamente en el aire; esta prueba de banco no debe usarse como sistema de ubicación de producción sin autenticación de tramas y protección contra reproducción.
-
-## Resultado observado
-
-El 23/9/2026 se corrigió una identificación inicial invertida de los equipos. Las comprobaciones de pocos bytes y cero tramas NMEA correspondían al ESP32 del hub, que **no tiene GPS**; no describen el estado del emisor. En esa prueba se cargó `gps_tx` en el equipo directo `68:EE:8F:4F:32:20` y `base_rx` en el del hub `68:EE:8F:4F:50:20`; el receptor recibió tramas `NO_FIX` con RSSI de −56 dBm. El 25/9/2026 se cargaron ambas versiones nuevas en las placas correctas, verificadas por serie USB e ID interno. Con ambas alimentadas, el emisor recibió `SHCTRL1|SH-COLLAR-001|5|30`, transmitió dos tramas `NO_FIX` separadas por cinco segundos y el receptor recibió ambas con RSSI −43 dBm y SNR 9,5–9,8 dB. Luego el emisor confirmó la vuelta a 300 segundos. A través de `POST /mode`, el puente confirmó los cambios 5 → 300 y recibió nuevas tramas `NO_FIX`. Falta probar una posición GPS real bajo cielo abierto y una estación que persista las lecturas en Supabase.
+Las pruebas de software validan paquetes, identidad, GPS sin datos/sin posición y pérdida de enlace sin exigir USB al emisor. La prueba de campo con batería, una posición GPS bajo cielo abierto y el alcance real quedan pendientes.

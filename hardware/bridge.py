@@ -36,10 +36,7 @@ state = {
     "transmitter_interval_seconds": None,
 }
 lock = threading.Lock()
-mode_request_lock = threading.Lock()
-mode_ack = threading.Event()
-mode_target_interval = None
-receiver_serial = None
+last_received_monotonic = float("-inf")
 
 
 def now():
@@ -48,6 +45,8 @@ def now():
 
 def parse_packet(line):
     fields = line.strip().split("|")
+    if fields[0] == "SHRX3":
+        return parse_demo_packet(fields)
     if len(fields) != 8 or fields[0] != "SHRX" or fields[1] != COLLAR_ID or not fields[2].isdigit():
         return None
     if fields[3] not in ("FIX", "NO_FIX"):
@@ -67,6 +66,38 @@ def parse_packet(line):
         return None
     return {"sequence": int(fields[2]), "signal": "fix" if lat is not None else "no_fix",
             "latitude": lat, "longitude": lon, "rssi": rssi, "snr": snr, "received_at": now()}
+
+
+def parse_demo_packet(fields):
+    if (len(fields) != 18 or fields[1] != COLLAR_ID or
+            fields[2] != MODULES["transmitter"]["chip"] or
+            not re.fullmatch(r"[0-9A-F]{8}", fields[3]) or
+            fields[5] not in ("FIX", "NO_FIX", "NO_DATA")):
+        return None
+    try:
+        sequence, sats, age, nmea, uart, uptime, interval, baud = [int(fields[i]) for i in (4, 8, 10, 11, 12, 13, 14, 15)]
+        hdop, rssi, snr = float(fields[9]), int(fields[16]), float(fields[17])
+        if (interval != 3 or baud not in (9600, 4800, 38400, 115200) or
+                not 0 <= sequence <= 0xffffffff or not -1 <= sats <= 99 or not -1 <= age <= 15000 or
+                any(not 0 <= v <= 0xffffffff for v in (nmea, uart, uptime)) or
+                not math.isfinite(hdop) or not -1 <= hdop <= 999 or
+                not -160 <= rssi <= 0 or not math.isfinite(snr) or not -30 <= snr <= 30):
+            return None
+        lat = lon = None
+        if fields[5] == "FIX":
+            lat, lon = float(fields[6]), float(fields[7])
+            if age < 0 or not (math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180):
+                return None
+        elif fields[6] or fields[7] or age != -1:
+            return None
+    except (ValueError, OverflowError):
+        return None
+    return dict(sequence=sequence, boot_id=fields[3], transmitter_chip=fields[2],
+                signal=fields[5].lower(), latitude=lat, longitude=lon,
+                satellites=None if sats < 0 else sats, hdop=None if hdop < 0 else hdop,
+                gps_age_ms=None if age < 0 else age, valid_nmea=nmea, gps_bytes=uart,
+                uptime_ms=uptime, gps_baud=baud, transmitter_interval_seconds=interval,
+                rssi=rssi, snr=snr, received_at=now())
 
 
 def find_port(role):
@@ -89,67 +120,61 @@ def identity_ok(line, role):
     return True
 
 
-def serial_loop(role):
-    global receiver_serial
-    connected_key = role + "_connected"
+def snapshot(at=None):
+    """Emitter liveness is proved by radio reception, never by a USB cable."""
+    with lock:
+        payload = state.copy()
+        age = (time.monotonic() if at is None else at) - last_received_monotonic
+    alive = payload["receiver_connected"] and payload["receiver_radio_ready"] and 0 <= age <= 15
+    payload.update(transmitter_connected=bool(alive), transmitter_radio_ready=bool(alive),
+                   transmitter_usb_connected=bool(find_port("transmitter")),
+                   demo_mode=True, status_source="lora", transmitter_interval_seconds=3)
+    return payload
+
+
+def accept_packet(packet):
+    global last_received_monotonic
+    with lock:
+        state.update(packet)
+        state["last_tx_at"] = packet["received_at"]
+        last_received_monotonic = time.monotonic()
+
+
+def serial_loop(role="receiver"):
     while True:
-        port = find_port(role)
+        port = find_port("receiver")
         if not port:
             with lock:
-                state[connected_key] = False
-                state[role + "_radio_ready"] = False
-            time.sleep(2)
+                state["receiver_connected"] = False
+                state["receiver_radio_ready"] = False
+            time.sleep(1)
             continue
         try:
-            with serial.Serial(port, 115200, timeout=1) as connection:
+            with serial.Serial(port, 115200, timeout=0.5) as connection:
                 verified = False
                 last_probe = 0
-                print(f"{role}: USB {MODULES[role]['usb']} en {port}; verificando firmware", flush=True)
-                while find_port(role) == port:
+                while find_port("receiver") == port:
                     if not verified and time.monotonic() - last_probe >= 1:
                         connection.write(b"I\n")
                         last_probe = time.monotonic()
                     line = connection.readline().decode("ascii", "replace").strip()
-                    if not verified:
-                        if identity_ok(line, role):
-                            verified = True
-                            with lock:
-                                state[connected_key] = True
-                                state[role + "_radio_ready"] = "RADIO_READY=1" in line
-                                if role == "transmitter":
-                                    interval = re.search(r"\binterval=(5|300)\b", line)
-                                    state["transmitter_interval_seconds"] = int(interval.group(1)) if interval else None
-                                else:
-                                    receiver_serial = connection
-                            print(f"{role}: identidad y radio verificadas: {line}", flush=True)
+                    if identity_ok(line, "receiver"):
+                        verified = "firmware=expo3" in line
+                        with lock:
+                            state["receiver_connected"] = verified
+                            state["receiver_radio_ready"] = verified and "RADIO_READY=1" in line
                         continue
-                    if role == "transmitter":
-                        mode = re.match(r"^MODE interval=(5|300)\b", line)
-                        if mode:
-                            with lock:
-                                state["transmitter_interval_seconds"] = int(mode.group(1))
-                                if state["transmitter_interval_seconds"] == mode_target_interval:
-                                    mode_ack.set()
-                        match = re.match(r"^TX seq=(\d+) status=(FIX|NO_FIX)\b", line)
-                        if match:
-                            with lock:
-                                state["last_tx_at"] = now()
-                    else:
+                    if verified:
                         packet = parse_packet(line)
                         if packet:
-                            with lock:
-                                state.update(packet)
+                            accept_packet(packet)
                             print(f"LoRa: {packet['signal']} seq={packet['sequence']} rssi={packet['rssi']}", flush=True)
         except (serial.SerialException, OSError) as error:
-            print(f"{role}: desconectado: {error}", flush=True)
+            print(f"receiver: {error}", flush=True)
         with lock:
-            state[connected_key] = False
-            state[role + "_radio_ready"] = False
-            if role == "receiver":
-                receiver_serial = None
-            else:
-                state["transmitter_interval_seconds"] = None
-        time.sleep(2)
+            state["receiver_connected"] = False
+            state["receiver_radio_ready"] = False
+        time.sleep(1)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -182,70 +207,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        global mode_target_interval
         if self.path != "/mode":
             self.send_error(404)
             return
-        if self.headers.get("Origin") not in ALLOWED_ORIGINS:
-            self.send_error(403)
-            return
-        if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
-            self.json_response(415, {"error": "Se requiere JSON"})
-            return
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 128:
-                raise ValueError()
-            payload = json.loads(self.rfile.read(length))
-        except (ValueError, json.JSONDecodeError):
-            self.json_response(400, {"error": "Solicitud inválida"})
-            return
-        interval = payload.get("interval_seconds") if isinstance(payload, dict) else None
-        if type(interval) is not int or interval not in (5, 300):
-            self.json_response(400, {"error": "Intervalo inválido"})
-            return
-        if not mode_request_lock.acquire(blocking=False):
-            self.json_response(409, {"error": "Ya se está cambiando el intervalo"})
-            return
-        try:
-            with lock:
-                if not (state["receiver_connected"] and state["receiver_radio_ready"] and
-                        state["transmitter_connected"] and state["transmitter_radio_ready"] and receiver_serial):
-                    self.json_response(503, {"error": "Los dos módulos deben estar conectados y con radio activa"})
-                    return
-                already_applied = state["transmitter_interval_seconds"] == interval
-                mode_target_interval = interval
-                mode_ack.clear()
-                try:
-                    receiver_serial.write(f"M|{interval}|{900 if interval == 5 else 0}\n".encode("ascii"))
-                except (serial.SerialException, OSError):
-                    self.json_response(503, {"error": "No se pudo escribir al receptor"})
-                    return
-            confirmed = already_applied or mode_ack.wait(15)
-            self.json_response(200 if confirmed else 504, {
-                "confirmed": bool(confirmed),
-                "interval_seconds": interval,
-                "message": "Cambio confirmado por el emisor" if confirmed else "El receptor envió la orden, pero el emisor no la confirmó",
-            })
-        finally:
-            with lock:
-                mode_target_interval = None
-            mode_request_lock.release()
+        self.json_response(409, {"error": "La demostración transmite cada 3 segundos de forma continua; no requiere órdenes al emisor."})
 
     def do_GET(self):
         if self.path != "/status":
             self.send_error(404)
             return
-        with lock:
-            payload = state.copy()
-        # Keep the timestamped packet. The web app evaluates its age against
-        # the selected 5-second or 300-second interval; clearing it here after
-        # 45 seconds would falsely report a normal collar as disconnected.
-        self.json_response(200, payload)
+        self.json_response(200, snapshot())
 
 
 if __name__ == "__main__":
-    for module in MODULES:
-        threading.Thread(target=serial_loop, args=(module,), daemon=True).start()
-    print("Puente local: http://127.0.0.1:8765/status", flush=True)
+    threading.Thread(target=serial_loop, daemon=True).start()
+    print("Puente USB/LoRa: http://127.0.0.1:8765/status; solo el receptor requiere USB", flush=True)
     ThreadingHTTPServer(("127.0.0.1", 8765), Handler).serve_forever()

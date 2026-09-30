@@ -53,13 +53,19 @@ await page.route("https://vqtgbgkwleveevlmguqe.supabase.co/**", async (route) =>
   }
   return json({});
 });
+let receiver = { device_id: "SH-COLLAR-001", transmitter_connected: true,
+  receiver_connected: true, transmitter_radio_ready: true, receiver_radio_ready: true,
+  demo_mode: true, transmitter_usb_connected: false, transmitter_interval_seconds: 3,
+  signal: "no_fix", last_tx_at: new Date().toISOString(), received_at: new Date().toISOString(),
+  rssi: -55, snr: 8.5, satellites: 0, valid_nmea: 30, gps_baud: 9600 };
 await page.route("http://127.0.0.1:8765/status", (route) => route.fulfill({
   status: 200, contentType: "application/json",
   headers: { "access-control-allow-origin": root.slice(0, -1) },
-  body: JSON.stringify({ device_id: "SH-COLLAR-001", transmitter_connected: true,
-    receiver_connected: true, transmitter_radio_ready: true, receiver_radio_ready: true,
-    transmitter_interval_seconds: 300, signal: "no_fix", received_at: new Date().toISOString() }),
+  body: JSON.stringify(receiver),
 }));
+await page.route(/(?:\.tile\.openstreetmap\.org|World_Imagery\/MapServer\/tile)/,
+  (route) => route.fulfill({ status: 200, contentType: "image/png", path: "tests/fixtures/tile.png" }));
+
 
 try {
   await page.goto(root);
@@ -94,14 +100,14 @@ try {
   await page.getByRole("button", { name: "Registrar módulo" }).click();
   await page.getByRole("dialog", { name: "Rastreo y diagnóstico" }).getByText("Esta MAC pertenece al receptor del prototipo", { exact: false }).waitFor();
   assert.equal(modules.length, 0);
-  await page.getByRole("button", { name: "Usar ESP conectado" }).click();
+  await page.getByRole("button", { name: "Detectar módulo" }).click();
   await page.getByText("Emisor con GPS detectado", { exact: false }).waitFor();
   assert.equal(await page.getByLabel("MAC del ESP32").inputValue(), "68:EE:8F:4F:32:20");
   await page.getByRole("button", { name: "Registrar módulo" }).click();
   await page.getByText("Emisor con GPS", { exact: false }).first().waitFor();
   assert.equal(modules[0].module_id, "68EE8F4F3220");
   await page.getByLabel("Función del módulo").selectOption("receptor");
-  await page.getByRole("button", { name: "Usar ESP conectado" }).click();
+  await page.getByRole("button", { name: "Detectar módulo" }).click();
   await page.getByText("Receptor LoRa detectado", { exact: false }).waitFor();
   await page.getByRole("button", { name: "Registrar módulo" }).click();
   assert.equal(modules[1].module_id, "68EE8F4F5020");
@@ -109,8 +115,32 @@ try {
   await page.bringToFront();
   await page.waitForTimeout(1000);
   assert.equal(await page.getByText("Cargando tus fincas…").count(), 0);
+  await page.getByRole("navigation").getByRole("button", { name: "Collares", exact: true }).click();
+  const row = page.getByRole("row").filter({ hasText: "SH-COLLAR-001" });
+  receiver = { ...receiver, received_at: new Date().toISOString(), last_tx_at: new Date().toISOString() };
+  await row.getByText("Sin señal GPS", { exact: true }).waitFor();
+  receiver = { ...receiver, signal: "no_data", received_at: new Date().toISOString(), last_tx_at: new Date().toISOString() };
+  await row.getByText("GPS sin datos", { exact: true }).waitFor();
+  receiver = { ...receiver, signal: "fix", latitude: 9.94, longitude: -84.1,
+    received_at: new Date().toISOString(), last_tx_at: new Date().toISOString() };
+  await row.getByText("GPS y LoRa activos", { exact: true }).waitFor();
+  await page.getByRole("navigation").getByRole("button", { name: "Mapa", exact: true }).click();
+  await page.locator(".receiver-status").getByText("GPS y LoRa activos").waitFor();
+  await page.evaluate(() => {
+    window.__mapPane = document.querySelector(".leaflet-map-pane");
+    window.__gpsMarker = document.querySelector(".leaflet-overlay-pane .leaflet-interactive");
+  });
+  receiver = { ...receiver, latitude: 9.941, longitude: -84.101,
+    received_at: new Date().toISOString(), last_tx_at: new Date().toISOString() };
+  await page.locator(".receiver-status").getByText(/9\.941000, -84\.101000/).waitFor();
+  assert(await page.evaluate(() => window.__mapPane === document.querySelector(".leaflet-map-pane") &&
+    window.__gpsMarker === document.querySelector(".leaflet-overlay-pane .leaflet-interactive")), "El mapa y marcador se conservan al actualizar GPS");
+  receiver = { ...receiver, received_at: new Date(Date.now() - 20_000).toISOString() };
+  await page.locator(".receiver-status").getByText("Sin señal LoRa", { exact: true }).waitFor();
+  receiver = { ...receiver, transmitter_connected: false, receiver_connected: false };
+  await page.locator(".receiver-status").getByText("Receptor desconectado", { exact: true }).waitFor();
   assert.equal(errors.length, 0, errors.join("; "));
-  console.log("Flujo de registro y regreso a la pestaña: correcto");
+  console.log("Registro, regreso a la pestaña, collar con batería, estados GPS/LoRa y mapa estable: correcto");
 } finally {
   await browser.close();
 }
