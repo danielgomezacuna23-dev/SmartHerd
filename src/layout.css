@@ -1393,3 +1393,23 @@ footer .text-link {
 .summary-signal .badge { justify-self: start; font-size: 15px; }
 .summary-signal small { color: var(--muted); overflow-wrap: anywhere; }
 @media (max-width: 540px) { .summary-signals { grid-template-columns: 1fr; gap: 12px; } }
+
+.fence-notice {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  border: 1px solid var(--danger);
+  border-radius: 14px;
+  background: var(--danger-bg);
+  color: var(--ink);
+}
+.fence-notice > svg { color: var(--danger); flex-shrink: 0; }
+.fence-notice strong { color: var(--danger); }
+.fence-notice p { margin: 5px 0 0; }
+@media (max-width: 540px) {
+  .fence-notice { flex-wrap: wrap; }
+  .fence-notice .grow { flex-basis: calc(100% - 40px); }
+  .fence-notice button { margin-left: 40px; }
+}

@@ -34,7 +34,6 @@ import {
   uid,
   today,
   defaults,
-  alertsFor,
   animalReadings,
   validateSettings,
 } from "./domain.mjs";
@@ -47,6 +46,7 @@ import useReceiverStatus, { sendReceiverMode } from "./useReceiverStatus";
 import { collarStatus, summarySignals, PHYSICAL_COLLAR_ID } from "./collarStatus.mjs";
 import { DEMO_INTERVAL_SECONDS } from "./tracking.mjs";
 import TrackingPanel from "./TrackingPanel";
+import { alertsForWithReceiver } from "./liveAlerts.mjs";
 import { potentialHeatForecast } from "./reproduction.mjs";
 import { validateModule } from "./modules.mjs";
 import { shouldResetWorkspace } from "./authSession.mjs";
@@ -617,14 +617,15 @@ export default function App() {
         ? data.animals.flatMap((a) => {
             const forecast = potentialHeatForecast(a, data.events, today());
             return [
-              ...alertsFor(a, data.readings, data.settings, clock),
+              ...alertsForWithReceiver(a, data.readings, data.settings, data.devices, receiver, clock),
               ...(forecast?.active ? [forecast] : []),
             ];
           })
         : [],
-    [data, clock],
+    [data, receiver, clock],
   );
   const alerts = allAlerts.filter((a) => !data?.acknowledged.includes(a.id));
+  const fenceAlerts = alerts.filter((alert) => alert.kind === "fence");
   const active = useMemo(
     () => data?.animals.filter((a) => a.status === "activo") || [],
     [data?.animals],
@@ -975,6 +976,16 @@ export default function App() {
             <div className="toast" role="status">
               <Check size={17} />
               {notice}
+            </div>
+          )}
+          {!!fenceAlerts.length && page !== "alerts" && (
+            <div className="fence-notice" role="alert">
+              <TriangleAlert size={24} aria-hidden="true" />
+              <div className="grow">
+                <strong>Fuera de la cerca</strong>
+                <p>{fenceAlerts.map((alert) => data.animals.find((animal) => animal.id === alert.animal_id)?.name || "Animal").join(", ")} · Última posición fuera del perímetro.</p>
+              </div>
+              <button className="secondary" onClick={() => setPage("alerts")}>Ver alerta</button>
             </div>
           )}
           {page !== "overview" && (

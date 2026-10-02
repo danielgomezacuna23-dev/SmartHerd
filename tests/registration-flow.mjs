@@ -6,7 +6,7 @@ const userId = "11111111-1111-4111-8111-111111111111";
 const farmId = "22222222-2222-4222-8222-222222222222";
 const farm = {
   id: farmId, owner_id: userId, name: "Finca de prueba", production_type: "leche",
-  breeds: ["Jersey"], latitude: 9.94, longitude: -84.1, polygon: [],
+  breeds: ["Jersey"], latitude: 9.94, longitude: -84.1, polygon: [[9.9395, -84.1005], [9.9405, -84.1005], [9.9405, -84.0995], [9.9395, -84.0995]],
   offline_minutes: 30, temperature_delta: 2, activity_ratio: 2, battery_min: 20,
 };
 const user = {
@@ -24,6 +24,7 @@ const session = { access_token: jwt, token_type: "bearer", expires_in: 3600,
 const animals = [];
 const devices = [];
 const modules = [];
+const acknowledgements = [];
 const browser = await chromium.launch({ executablePath: "/Applications/Chrome.app/Contents/MacOS/Google Chrome", headless: true });
 const context = await browser.newContext();
 const page = await context.newPage();
@@ -41,12 +42,13 @@ await page.route("https://vqtgbgkwleveevlmguqe.supabase.co/**", async (route) =>
   if (url.pathname.startsWith("/rest/v1/")) {
     const table = url.pathname.split("/").at(-1);
     if (request.method() === "GET")
-      return json(table === "farm_settings" ? [farm] : table === "animals" ? animals : table === "devices" ? devices : table === "module_registry" ? modules : []);
+      return json(table === "farm_settings" ? [farm] : table === "animals" ? animals : table === "devices" ? devices : table === "module_registry" ? modules : table === "alert_acknowledgements" ? acknowledgements : []);
     if (request.method() === "POST") {
       const row = JSON.parse(request.postData());
       if (table === "animals") animals.push(row);
       if (table === "devices") devices.push(row);
       if (table === "module_registry") modules.push(row);
+      if (table === "alert_acknowledgements") acknowledgements.push(row);
       return json([], 201);
     }
     return json([]);
@@ -57,7 +59,7 @@ let receiver = { device_id: "SH-COLLAR-001", transmitter_connected: true,
   receiver_connected: true, transmitter_radio_ready: true, receiver_radio_ready: true,
   demo_mode: true, transmitter_usb_connected: false, transmitter_interval_seconds: 3,
   signal: "no_fix", last_tx_at: new Date().toISOString(), received_at: new Date().toISOString(),
-  rssi: -55, snr: 8.5, satellites: 0, valid_nmea: 30, gps_baud: 9600 };
+  boot_id: "TEST0001", sequence: 1, rssi: -55, snr: 8.5, satellites: 0, valid_nmea: 30, gps_baud: 9600 };
 await page.route("http://127.0.0.1:8765/status", (route) => route.fulfill({
   status: 200, contentType: "application/json",
   headers: { "access-control-allow-origin": new URL(root).origin },
@@ -134,19 +136,33 @@ try {
   await page.locator(".receiver-status").getByText("GPS y LoRa activos").waitFor();
   await page.evaluate(() => {
     window.__mapPane = document.querySelector(".leaflet-map-pane");
-    window.__gpsMarker = document.querySelector(".leaflet-overlay-pane .leaflet-interactive");
+    window.__gpsMarker = document.querySelector(".leaflet-overlay-pane path:not(.farm-boundary):not(.farm-boundary-halo)");
   });
   receiver = { ...receiver, latitude: 9.941, longitude: -84.101,
     received_at: new Date().toISOString(), last_tx_at: new Date().toISOString() };
   await page.locator(".receiver-status").getByText(/9\.941000, -84\.101000/).waitFor();
   assert(await page.evaluate(() => window.__mapPane === document.querySelector(".leaflet-map-pane") &&
-    window.__gpsMarker === document.querySelector(".leaflet-overlay-pane .leaflet-interactive")), "El mapa y marcador se conservan al actualizar GPS");
+    window.__gpsMarker === document.querySelector(".leaflet-overlay-pane path:not(.farm-boundary):not(.farm-boundary-halo)")), "El mapa y marcador se conservan al actualizar GPS");
+  await page.locator(".fence-notice").getByText("Fuera de la cerca", { exact: true }).waitFor();
+  assert.equal(await page.locator(".fence-notice").count(), 1);
+  await page.getByRole("button", { name: "Ver alerta", exact: true }).click();
+  await page.getByRole("heading", { name: "Fuera de la cerca", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Marcar revisada: Fuera de la cerca" }).click();
+  await page.getByRole("heading", { name: "Fuera de la cerca", exact: true }).waitFor({ state: "hidden" });
+  assert.equal(acknowledgements.length, 1);
+  await page.getByRole("navigation").getByRole("button", { name: "Mapa", exact: true }).click();
+  assert.equal(await page.locator(".fence-notice").count(), 0);
+  receiver = { ...receiver, sequence: 2, received_at: new Date().toISOString(), last_tx_at: new Date().toISOString() };
+  await page.locator(".fence-notice").waitFor();
+  receiver = { ...receiver, sequence: 3, latitude: 9.94, longitude: -84.1,
+    received_at: new Date().toISOString(), last_tx_at: new Date().toISOString() };
+  await page.locator(".fence-notice").waitFor({ state: "hidden" });
   receiver = { ...receiver, received_at: new Date(Date.now() - 20_000).toISOString() };
   await page.locator(".receiver-status").getByText("Sin señal LoRa", { exact: true }).waitFor();
   receiver = { ...receiver, transmitter_connected: false, receiver_connected: false };
   await page.locator(".receiver-status").getByText("Receptor desconectado", { exact: true }).waitFor();
   assert.equal(errors.length, 0, errors.join("; "));
-  console.log("Registro, regreso a la pestaña, collar con batería, estados GPS/LoRa y mapa estable: correcto");
+  console.log("Registro, pestaña, GPS/LoRa, mapa estable y geocerca LoRa sin telemetría cloud: correcto");
 } finally {
   await browser.close();
 }
